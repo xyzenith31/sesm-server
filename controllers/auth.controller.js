@@ -2,6 +2,7 @@ const User = require('../models/user.model.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
+// Fungsi register tidak diubah, sudah sesuai permintaan Anda
 exports.register = async (req, res) => {
   const { username, email, nama, umur, password, konfirmasi_password } = req.body;
 
@@ -13,7 +14,7 @@ exports.register = async (req, res) => {
     const newUser = {
       username,
       email,
-      password: bcrypt.hashSync(password, 8), // Hash password
+      password: bcrypt.hashSync(password, 8),
       nama,
       umur
     };
@@ -25,9 +26,9 @@ exports.register = async (req, res) => {
   }
 };
 
-// Fungsi untuk Login (tidak diubah)
+// Fungsi untuk Login (DIPERBARUI)
 exports.login = async (req, res) => {
-  const { identifier, password } = req.body; // 'identifier' bisa username atau email
+  const { identifier, password } = req.body;
 
   try {
     const user = await User.findByUsernameOrEmail(identifier);
@@ -45,16 +46,18 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Buat token JWT
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
       expiresIn: 86400 // 24 jam
     });
 
+    // KIRIM RESPON DENGAN MENAMBAHKAN INFORMASI JENJANG DAN KELAS
     res.status(200).send({
       id: user.id,
       username: user.username,
       email: user.email,
       nama: user.nama,
+      jenjang: user.jenjang, // <-- TAMBAHAN
+      kelas: user.kelas,     // <-- TAMBAHAN
       accessToken: token
     });
 
