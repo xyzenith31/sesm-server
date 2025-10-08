@@ -2,7 +2,7 @@ const User = require('../models/user.model.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// Fungsi register tidak diubah, sudah sesuai permintaan Anda
+// Fungsi register
 exports.register = async (req, res) => {
   const { username, email, nama, umur, password, konfirmasi_password } = req.body;
 
@@ -26,7 +26,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// Fungsi untuk Login (DIPERBARUI)
+// Fungsi untuk Login
 exports.login = async (req, res) => {
   const { identifier, password } = req.body;
 
@@ -50,14 +50,13 @@ exports.login = async (req, res) => {
       expiresIn: 86400 // 24 jam
     });
 
-    // KIRIM RESPON DENGAN MENAMBAHKAN INFORMASI JENJANG DAN KELAS
     res.status(200).send({
       id: user.id,
       username: user.username,
       email: user.email,
       nama: user.nama,
-      jenjang: user.jenjang, // <-- TAMBAHAN
-      kelas: user.kelas,     // <-- TAMBAHAN
+      jenjang: user.jenjang,
+      kelas: user.kelas,
       accessToken: token
     });
 

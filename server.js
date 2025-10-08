@@ -5,20 +5,19 @@ require('dotenv').config();
 const app = express();
 
 // Middleware
-app.use(cors()); // Mengaktifkan CORS
-app.use(express.json()); // Mem-parse body request sebagai JSON
-app.use(express.urlencoded({ extended: true })); // Mem-parse body request dari form
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Route utama
 app.get('/', (req, res) => {
   res.json({ message: 'Selamat datang di API backend.' });
 });
 
-// Mengimpor dan menggunakan routes otentikasi
+// Routes
 require('./routes/auth.routes.js')(app);
-
-// ✅ Tambahkan baris berikut sesuai instruksi AI
 require('./routes/user.routes.js')(app);
+require('./routes/subject.routes')(app);
 
 // Menjalankan server
 const PORT = process.env.PORT || 8080;

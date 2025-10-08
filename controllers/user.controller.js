@@ -2,12 +2,10 @@ const User = require('../models/user.model.js');
 
 // Fungsi untuk update jenjang dan kelas
 exports.updateLevelAndClass = async (req, res) => {
-  // Kita mendapatkan userId dari middleware verifyToken
   const userId = req.userId; 
   const { jenjang, kelas } = req.body;
 
   try {
-    // Panggil model untuk update data di database
     const result = await User.updateProfile(userId, { jenjang, kelas });
 
     if (result.affectedRows === 0) {

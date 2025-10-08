@@ -16,7 +16,7 @@ verifyRegister.checkDuplicateUsernameOrEmail = async (req, res, next) => {
       return res.status(400).send({ message: "Gagal! Email sudah digunakan." });
     }
     
-    next(); // Lanjut ke controller jika tidak ada duplikasi
+    next();
 
   } catch (error) {
     res.status(500).send({ message: error.message });

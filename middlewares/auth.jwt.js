@@ -11,8 +11,7 @@ const verifyToken = (req, res, next) => {
     if (err) {
       return res.status(401).send({ message: "Unauthorized!" });
     }
-    // Menyimpan id user dari token ke dalam request
-    // agar bisa digunakan oleh controller selanjutnya
+    
     req.userId = decoded.id; 
     next();
   });

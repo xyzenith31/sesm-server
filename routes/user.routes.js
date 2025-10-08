@@ -10,8 +10,6 @@ module.exports = function(app) {
     next();
   });
 
-  // Endpoint untuk update profil (jenjang & kelas)
-  // Dilindungi oleh middleware verifyToken
   app.put(
     "/api/user/profile/level",
     [verifyToken],
