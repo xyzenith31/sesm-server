@@ -2,7 +2,7 @@ const User = require('../models/user.model.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// Fungsi register
+// Fungsi register (tidak perlu diubah)
 exports.register = async (req, res) => {
   const { username, email, nama, umur, password, konfirmasi_password } = req.body;
 
@@ -26,7 +26,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// Fungsi untuk Login
+// --- FUNGSI LOGIN DIPERBAIKI DI SINI ---
 exports.login = async (req, res) => {
   const { identifier, password } = req.body;
 
@@ -50,13 +50,14 @@ exports.login = async (req, res) => {
       expiresIn: 86400 // 24 jam
     });
 
+    // PASTIKAN 'jenjang' dan 'kelas' SELALU ADA DALAM RESPONS
     res.status(200).send({
       id: user.id,
       username: user.username,
       email: user.email,
       nama: user.nama,
-      jenjang: user.jenjang,
-      kelas: user.kelas,
+      jenjang: user.jenjang, // <-- WAJIB ADA
+      kelas: user.kelas,     // <-- WAJIB ADA
       accessToken: token
     });
 
