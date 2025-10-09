@@ -15,9 +15,7 @@ app.get('/', (req, res) => {
 });
 
 // Routes
-require('./routes/auth.routes.js')(app);
-require('./routes/user.routes.js')(app);
-require('./routes/subject.routes')(app);
+require('./routes')(app); // Cukup panggil index.js dari direktori routes
 
 // Menjalankan server
 const PORT = process.env.PORT || 8080;
