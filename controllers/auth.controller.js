@@ -1,10 +1,12 @@
+// contoh-server-sesm/controllers/auth.controller.js
+
 const User = require('../models/user.model.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// Fungsi register (tidak perlu diubah)
+// Fungsi register (tidak perlu diubah signifikan jika default 'siswa' sudah cukup)
 exports.register = async (req, res) => {
-  const { username, email, nama, umur, password, konfirmasi_password } = req.body;
+  const { username, email, nama, umur, password, konfirmasi_password, role } = req.body;
 
   if (password !== konfirmasi_password) {
     return res.status(400).send({ message: "Password dan Konfirmasi Password tidak cocok." });
@@ -16,7 +18,8 @@ exports.register = async (req, res) => {
       email,
       password: bcrypt.hashSync(password, 8),
       nama,
-      umur
+      umur,
+      role: role || 'siswa' // Default role
     };
 
     const createdUser = await User.create(newUser);
@@ -50,14 +53,15 @@ exports.login = async (req, res) => {
       expiresIn: 86400 // 24 jam
     });
 
-    // PASTIKAN 'jenjang' dan 'kelas' SELALU ADA DALAM RESPONS
+    // PASTIKAN 'role' SELALU ADA DALAM RESPONS
     res.status(200).send({
       id: user.id,
       username: user.username,
       email: user.email,
       nama: user.nama,
-      jenjang: user.jenjang, // <-- WAJIB ADA
-      kelas: user.kelas,     // <-- WAJIB ADA
+      jenjang: user.jenjang,
+      kelas: user.kelas,
+      role: user.role, // <-- WAJIB ADA
       accessToken: token
     });
 

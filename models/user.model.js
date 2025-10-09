@@ -1,17 +1,21 @@
+// contoh-server-sesm/models/user.model.js
+
 const db = require("../config/database.config.js");
 const bcrypt = require('bcryptjs');
 
 const User = {};
 
 User.create = async (newUser) => {
+  // Menambahkan kolom 'role' saat registrasi
   const [result] = await db.execute(
-    "INSERT INTO users (username, email, password, nama, umur) VALUES (?, ?, ?, ?, ?)",
-    [newUser.username, newUser.email, newUser.password, newUser.nama, newUser.umur]
+    "INSERT INTO users (username, email, password, nama, umur, role) VALUES (?, ?, ?, ?, ?, ?)",
+    [newUser.username, newUser.email, newUser.password, newUser.nama, newUser.umur, newUser.role || 'siswa']
   );
   return { id: result.insertId, ...newUser };
 };
 
 User.findByUsernameOrEmail = async (identifier) => {
+  // Memastikan kolom 'role' juga diambil saat login
   const [rows] = await db.execute(
     "SELECT * FROM users WHERE username = ? OR email = ?",
     [identifier, identifier]
