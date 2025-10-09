@@ -31,19 +31,26 @@ Materi.getAdminDashboardData = async (jenjang, kelas) => {
 
     const [rows] = await db.execute(query, params);
 
+    // --- PERBAIKAN UTAMA DI SINI ---
+    // Logika pemrosesan data diubah untuk memastikan subject_id selalu ada.
     const result = {};
     rows.forEach(row => {
         if (!row.nama_mapel) return;
 
+        // Jika mapel belum ada di hasil, inisialisasi dengan struktur baru
         if (!result[row.nama_mapel]) {
-            result[row.nama_mapel] = [];
+            result[row.nama_mapel] = {
+                subject_id: row.subject_id, // Simpan ID di tingkat atas
+                chapters: []
+            };
         }
         
+        // Jika ada data bab (bukan hasil NULL dari LEFT JOIN), tambahkan ke array chapters
         if (row.chapter_id) {
-            result[row.nama_mapel].push({
+            result[row.nama_mapel].chapters.push({
                 judul: row.chapter_judul,
                 materiKey: row.materiKey,
-                subject_id: row.subject_id,
+                // subject_id tidak perlu lagi di sini karena sudah ada di level atas
                 questionCount: row.jumlah_soal
             });
         }
