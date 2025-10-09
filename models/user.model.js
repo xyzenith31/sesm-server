@@ -1,8 +1,8 @@
 const db = require("../config/database.config.js");
+const bcrypt = require('bcryptjs');
 
 const User = {};
 
-// Fungsi untuk membuat user baru (DIUBAH)
 User.create = async (newUser) => {
   const [result] = await db.execute(
     "INSERT INTO users (username, email, password, nama, umur) VALUES (?, ?, ?, ?, ?)",
@@ -11,7 +11,6 @@ User.create = async (newUser) => {
   return { id: result.insertId, ...newUser };
 };
 
-// Fungsi untuk mencari user berdasarkan username atau email
 User.findByUsernameOrEmail = async (identifier) => {
   const [rows] = await db.execute(
     "SELECT * FROM users WHERE username = ? OR email = ?",
@@ -20,7 +19,44 @@ User.findByUsernameOrEmail = async (identifier) => {
   return rows[0];
 };
 
-// Fungsi baru untuk memperbarui jenjang dan kelas
+// --- (FUNGSI INI DIPERBAIKI) ---
+User.updateById = async (userId, data) => {
+  // Ambil field yang diizinkan untuk di-update dari data yang dikirim frontend
+  // Perhatikan: 'avatar' sudah dihapus dari daftar ini
+  const { nama, username, umur, password } = data;
+
+  const fields = [];
+  const values = [];
+
+  if (nama !== undefined) {
+    fields.push("nama = ?");
+    values.push(nama);
+  }
+  if (username !== undefined) {
+    fields.push("username = ?");
+    values.push(username);
+  }
+  if (umur !== undefined) {
+    fields.push("umur = ?");
+    values.push(umur);
+  }
+  if (password) { // Hanya update password jika diisi
+    fields.push("password = ?");
+    values.push(bcrypt.hashSync(password, 8));
+  }
+
+  if (fields.length === 0) {
+    return { affectedRows: 0 };
+  }
+
+  const query = `UPDATE users SET ${fields.join(", ")} WHERE id = ?`;
+  values.push(userId);
+
+  const [result] = await db.execute(query, values);
+  return result;
+};
+
+
 User.updateProfile = async (userId, data) => {
   const [result] = await db.execute(
     "UPDATE users SET jenjang = COALESCE(?, jenjang), kelas = COALESCE(?, kelas) WHERE id = ?",
@@ -28,5 +64,6 @@ User.updateProfile = async (userId, data) => {
   );
   return result;
 };
+
 
 module.exports = User;

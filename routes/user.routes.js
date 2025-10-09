@@ -10,9 +10,18 @@ module.exports = function(app) {
     next();
   });
 
+  // Endpoint lama untuk update level (tetap ada)
   app.put(
     "/api/user/profile/level",
     [verifyToken],
     userController.updateLevelAndClass
+  );
+
+  // --- (ENDPOINT BARU DITAMBAHKAN DI SINI) ---
+  // Endpoint ini yang akan menerima data dari AccountSettingsPage
+  app.put(
+    "/api/user", // Menggunakan endpoint '/api/user' yang dituju frontend
+    [verifyToken], // Memastikan hanya user yang login yang bisa update
+    userController.updateUserProfile // Memanggil controller yang baru kita buat
   );
 };
