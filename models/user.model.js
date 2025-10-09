@@ -19,10 +19,7 @@ User.findByUsernameOrEmail = async (identifier) => {
   return rows[0];
 };
 
-// --- (FUNGSI INI DIPERBAIKI) ---
 User.updateById = async (userId, data) => {
-  // Ambil field yang diizinkan untuk di-update dari data yang dikirim frontend
-  // Perhatikan: 'avatar' sudah dihapus dari daftar ini
   const { nama, username, umur, password } = data;
 
   const fields = [];
@@ -40,7 +37,7 @@ User.updateById = async (userId, data) => {
     fields.push("umur = ?");
     values.push(umur);
   }
-  if (password) { // Hanya update password jika diisi
+  if (password) {
     fields.push("password = ?");
     values.push(bcrypt.hashSync(password, 8));
   }
