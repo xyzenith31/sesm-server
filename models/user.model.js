@@ -1,9 +1,14 @@
 // contoh-server-sesm/models/user.model.js
-
 const db = require("../config/database.config.js");
 const bcrypt = require('bcryptjs');
 
 const User = {};
+
+// Tambahkan fungsi findById
+User.findById = async (userId) => {
+    const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [userId]);
+    return rows[0];
+};
 
 User.create = async (newUser) => {
   // Menambahkan kolom 'role' saat registrasi

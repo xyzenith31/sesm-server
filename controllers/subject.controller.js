@@ -1,91 +1,37 @@
-const allSubjects = {
-  tk: [
-    { icon: 'FaBookReader', label: 'Membaca' },
-    { icon: 'FaPencilAlt', label: 'Menulis' },
-    { icon: 'FaCalculator', label: 'Berhitung' },
-    { icon: 'FaLanguage', label: 'B.Inggris' },
-    { icon: 'FaBullseye', label: 'Melatih Fokus' },
-    { icon: 'FaQuestionCircle', label: 'Quiziz' },
-  ],
-  sd_1: [
-    { icon: 'FaMosque', label: 'Pendidikan Agama Islam' },
-    { icon: 'FaBook', label: 'Bahasa Indonesia' },
-    { icon: 'FaCalculator', label: 'Matematika' },
-    { icon: 'FaLanguage', label: 'Bahasa Inggris' },
-    { icon: 'FaBalanceScale', label: 'PKN' },
-  ],
-  sd_2: [
-    { icon: 'FaMosque', label: 'Pendidikan Agama Islam' },
-    { icon: 'FaBalanceScale', label: 'PKN' },
-    { icon: 'FaBook', label: 'Bahasa Indonesia' },
-    { icon: 'FaCalculator', label: 'Matematika' },
-    { icon: 'FaLanguage', label: 'Bahasa Inggris' },
-  ],
-  sd_3_4: [
-    { icon: 'FaMosque', label: 'Pendidikan Agama Islam' },
-    { icon: 'FaBalanceScale', label: 'PKN' },
-    { icon: 'FaBook', label: 'Bahasa Indonesia' },
-    { icon: 'FaCalculator', label: 'Matematika' },
-    { icon: 'FaLanguage', label: 'Bahasa Inggris' },
-    { icon: 'FaFlask', label: 'IPA' },
-    { icon: 'FaGlobeAmericas', label: 'IPS' },
-  ],
-  sd_5: [
-    { icon: 'FaMosque', label: 'Pendidikan Agama Islam' },
-    { icon: 'FaBalanceScale', label: 'PKN' },
-    { icon: 'FaBook', label: 'Bahasa Indonesia' },
-    { icon: 'FaCalculator', label: 'Matematika' },
-    { icon: 'FaLanguage', label: 'Bahasa Inggris' },
-    { icon: 'FaFlask', label: 'IPA' },
-    { icon: 'FaGlobeAmericas', label: 'IPS' },
-  ],
-  sd_6: [
-    { icon: 'FaMosque', label: 'Pendidikan Agama Islam' },
-    { icon: 'FaBalanceScale', label: 'PKN' },
-    { icon: 'FaBook', label: 'Bahasa Indonesia' },
-    { icon: 'FaCalculator', label: 'Matematika' },
-    { icon: 'FaLanguage', label: 'Bahasa Inggris' },
-    { icon: 'FaFlask', label: 'IPA' },
-    { icon: 'FaGlobeAmericas', label: 'IPS' },
-  ],
-};
+// contoh-server-sesm/controllers/subject.controller.js
+const Subject = require('../models/subject.model.js');
 
-// Fungsi controller untuk mendapatkan mata pelajaran
-exports.getSubjects = (req, res) => {
+// Fungsi controller untuk mendapatkan mata pelajaran dari DATABASE
+exports.getSubjects = async (req, res) => {
   const { jenjang, kelas } = req.params;
-
-  let subjectKey;
 
   if (!jenjang) {
     return res.status(400).send({ message: "Parameter 'jenjang' (tk/sd) dibutuhkan." });
   }
 
-  const jenjangLower = jenjang.toLowerCase();
-
-  if (jenjangLower === 'tk') {
-    subjectKey = 'tk';
-  } else if (jenjangLower === 'sd') {
-    if (!kelas) {
-      return res.status(400).send({ message: "Parameter 'kelas' dibutuhkan untuk jenjang SD." });
-    }
-    const kelasNum = parseInt(kelas, 10);
-    if (isNaN(kelasNum)) {
-        return res.status(400).send({ message: "Parameter 'kelas' harus berupa angka." });
-    }
-
-    if (kelasNum === 1) subjectKey = 'sd_1';
-    else if (kelasNum === 2) subjectKey = 'sd_2';
-    else if (kelasNum === 3 || kelasNum === 4) subjectKey = 'sd_3_4';
-    else if (kelasNum === 5) subjectKey = 'sd_5';
-    else if (kelasNum === 6) subjectKey = 'sd_6';
+  // Untuk jenjang SD, kelas wajib ada
+  if (jenjang.toLowerCase() === 'sd' && !kelas) {
+    return res.status(400).send({ message: "Parameter 'kelas' dibutuhkan untuk jenjang SD." });
   }
 
-  const subjects = allSubjects[subjectKey];
+  try {
+    const subjects = await Subject.findByJenjangAndKelas(jenjang, kelas);
 
-  if (!subjects) {
-    const kelasInfo = kelas ? `kelas '${kelas}'` : '';
-    return res.status(404).send({ message: `Mata pelajaran untuk jenjang '${jenjang}' ${kelasInfo} tidak ditemukan.` });
+    if (!subjects || subjects.length === 0) {
+      const kelasInfo = kelas ? `kelas '${kelas}'` : '';
+      return res.status(404).send({ message: `Mata pelajaran untuk jenjang '${jenjang}' ${kelasInfo} tidak ditemukan.` });
+    }
+    
+    // Transformasi data agar sesuai dengan yang diharapkan frontend
+    const formattedSubjects = subjects.map(s => ({
+        icon: s.icon,
+        label: s.nama_mapel,
+        id: s.id // Kirim juga ID untuk query selanjutnya
+    }));
+
+    res.status(200).json(formattedSubjects);
+
+  } catch (error) {
+    res.status(500).send({ message: "Terjadi kesalahan di server: " + error.message });
   }
-
-  res.status(200).json(subjects);
 };

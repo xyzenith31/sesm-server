@@ -1,98 +1,106 @@
-// Impor data sebagai variabel agar bisa dimodifikasi di memori
-let materiData = require('../data/materi.data.js');
+// contoh-server-sesm/controllers/materi.controller.js
 
-// --- (UNTUK SISWA) ---
-// Mendapatkan detail soal dari satu bab
-exports.getMateriByKey = (req, res) => {
-  const { materiKey } = req.params;
-  const materi = materiData[materiKey];
+const Materi = require("../models/materi.model.js");
 
-  if (!materi) {
-    return res.status(404).send({ message: `Materi dengan kunci '${materiKey}' tidak ditemukan.` });
-  }
+// === UNTUK GURU / ADMIN ===
 
-  res.status(200).json(materi);
+// Endpoint efisien untuk dashboard manajemen materi
+exports.getMateriForAdmin = async (req, res) => {
+    const { jenjang, kelas } = req.query;
+    if (!jenjang) {
+        return res.status(400).send({ message: "Query 'jenjang' dibutuhkan." });
+    }
+    if (jenjang.toUpperCase() === 'SD' && !kelas) {
+        return res.status(400).send({ message: "Query 'kelas' dibutuhkan untuk jenjang SD." });
+    }
+
+    try {
+        const data = await Materi.getAdminDashboardData(jenjang, kelas);
+        res.status(200).json(data);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
 };
 
-
-// --- (UNTUK GURU/ADMIN) ---
-
-// Mendapatkan daftar semua bab materi yang tersedia untuk dikelola
-exports.getAllMateriForAdmin = (req, res) => {
-    const materiList = Object.keys(materiData).map(key => ({
-        materiKey: key,
-        judul: materiData[key].judul,
-        mapel: materiData[key].mapel,
-        jumlahSoal: materiData[key].questions.length
-    }));
-    res.status(200).json(materiList);
-};
-
-// Menambahkan pertanyaan baru ke sebuah bab
-exports.addQuestion = (req, res) => {
+exports.getDetailMateriForAdmin = async (req, res) => {
     const { materiKey } = req.params;
-    const { type, question, options, correctAnswer } = req.body;
-
-    if (!materiData[materiKey]) {
-        return res.status(404).send({ message: "Materi tidak ditemukan." });
+    try {
+        const questions = await Materi.getQuestionsByChapterKey(materiKey);
+        res.status(200).json({ questions });
+    } catch (error) {
+        res.status(500).send({ message: error.message });
     }
-
-    if (!type || !question || !correctAnswer || (type === 'multiple-choice' && !options)) {
-        return res.status(400).send({ message: "Data pertanyaan tidak lengkap." });
-    }
-
-    const newQuestion = {
-        id: `q${Date.now()}`, // Membuat ID unik sederhana
-        type,
-        question,
-        options: type === 'multiple-choice' ? options : [],
-        correctAnswer
-    };
-
-    materiData[materiKey].questions.push(newQuestion);
-    console.log(`Soal baru ditambahkan ke ${materiKey}:`, newQuestion); // Log untuk debugging
-    res.status(201).json(newQuestion);
 };
 
-// Mengupdate pertanyaan yang sudah ada
-exports.updateQuestion = (req, res) => {
-    const { materiKey, questionId } = req.params;
-    const updatedData = req.body;
-
-    if (!materiData[materiKey]) {
-        return res.status(404).send({ message: "Materi tidak ditemukan." });
+exports.addChapter = async (req, res) => {
+    const { judul, subjectId } = req.body;
+    if (!judul || !subjectId) {
+        return res.status(400).send({ message: "Data 'judul' dan 'subjectId' dibutuhkan." });
     }
-
-    const questionIndex = materiData[materiKey].questions.findIndex(q => q.id === questionId);
-
-    if (questionIndex === -1) {
-        return res.status(404).send({ message: "Pertanyaan tidak ditemukan." });
+    try {
+        const newChapter = await Materi.createChapter(judul, subjectId);
+        res.status(201).json(newChapter);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
     }
-
-    materiData[materiKey].questions[questionIndex] = { 
-        ...materiData[materiKey].questions[questionIndex], 
-        ...updatedData 
-    };
-    
-    console.log(`Soal ${questionId} diupdate di ${materiKey}:`, materiData[materiKey].questions[questionIndex]);
-    res.status(200).json(materiData[materiKey].questions[questionIndex]);
 };
 
-// Menghapus pertanyaan dari sebuah bab
-exports.deleteQuestion = (req, res) => {
-    const { materiKey, questionId } = req.params;
-
-    if (!materiData[materiKey]) {
-        return res.status(404).send({ message: "Materi tidak ditemukan." });
+exports.addQuestion = async (req, res) => {
+    const { materiKey } = req.params;
+    try {
+        const newQuestion = await Materi.createQuestion(materiKey, req.body);
+        res.status(201).json(newQuestion);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
     }
+};
 
-    const initialLength = materiData[materiKey].questions.length;
-    materiData[materiKey].questions = materiData[materiKey].questions.filter(q => q.id !== questionId);
-
-    if (materiData[materiKey].questions.length === initialLength) {
-        return res.status(404).send({ message: "Pertanyaan tidak ditemukan untuk dihapus." });
+exports.deleteChapter = async (req, res) => {
+    const { materiKey } = req.params;
+    try {
+        const affectedRows = await Materi.deleteChapter(materiKey);
+        if (affectedRows === 0) {
+            return res.status(404).send({ message: "Bab tidak ditemukan." });
+        }
+        res.status(200).send({ message: "Bab berhasil dihapus." });
+    } catch (error) {
+        res.status(500).send({ message: error.message });
     }
-    
-    console.log(`Soal ${questionId} dihapus dari ${materiKey}.`);
-    res.status(200).send({ message: "Pertanyaan berhasil dihapus." });
+};
+
+exports.deleteQuestion = async (req, res) => {
+    const { questionId } = req.params;
+    try {
+        const affectedRows = await Materi.deleteQuestion(questionId);
+        if (affectedRows === 0) {
+            return res.status(404).send({ message: "Soal tidak ditemukan." });
+        }
+        res.status(200).send({ message: "Soal berhasil dihapus." });
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+
+// === UNTUK SISWA ===
+
+exports.getChaptersBySubjectName = async (req, res) => {
+    const { jenjang, kelas, namaMapel } = req.params;
+    try {
+        const chapters = await Materi.findChaptersBySubjectName(jenjang, kelas, namaMapel);
+        res.status(200).json(chapters);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+exports.getMateriSiswa = async (req, res) => {
+    const { materiKey } = req.params;
+    try {
+        const questions = await Materi.getQuestionsByChapterKey(materiKey);
+        const materiForSiswa = questions.map(({ correctAnswer, ...q }) => q);
+        res.status(200).json(materiForSiswa);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
 };
