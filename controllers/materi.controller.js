@@ -4,7 +4,6 @@ const Materi = require("../models/materi.model.js");
 
 // === UNTUK GURU / ADMIN ===
 
-// Endpoint efisien untuk dashboard manajemen materi
 exports.getMateriForAdmin = async (req, res) => {
     const { jenjang, kelas } = req.query;
     if (!jenjang) {
@@ -97,10 +96,64 @@ exports.getChaptersBySubjectName = async (req, res) => {
 exports.getMateriSiswa = async (req, res) => {
     const { materiKey } = req.params;
     try {
-        const questions = await Materi.getQuestionsByChapterKey(materiKey);
-        const materiForSiswa = questions.map(({ correctAnswer, ...q }) => q);
-        res.status(200).json(materiForSiswa);
+        // Logika ini diperbaiki agar hanya mengirim data yang dibutuhkan siswa
+        const questionsWithAnswers = await Materi.getQuestionsByChapterKey(materiKey);
+        const questionsForSiswa = questionsWithAnswers.map(({ correctAnswer, jawaban_esai, ...q }) => q); // Hapus kunci jawaban
+        res.status(200).json(questionsForSiswa);
     } catch (error) {
         res.status(500).send({ message: error.message });
+    }
+};
+
+// --- FUNGSI SUBMIT JAWABAN (DIPERBAIKI) ---
+exports.submitAnswers = async (req, res) => {
+    const userId = req.userId;
+    const { materiKey } = req.params;
+    const { answers } = req.body; 
+
+    try {
+        const chapter = await Materi.findChapterByMateriKey(materiKey);
+        if (!chapter) {
+            return res.status(404).send({ message: "Bab tidak ditemukan." });
+        }
+
+        if (chapter.grading_mode === 'otomatis') {
+            let score = 0;
+            const questions = await Materi.getQuestionsByChapterKey(materiKey);
+            
+            const submissionId = await Materi.createSubmission(userId, chapter.id, 0, true, 'selesai');
+
+            for (const ans of answers) {
+                const question = questions.find(q => q.id === ans.questionId);
+                let isCorrect = false;
+                
+                if (question) { // Validasi jika soal ada
+                    if (question.correctAnswer && question.correctAnswer.toLowerCase() === (ans.answer || '').toLowerCase()) {
+                        isCorrect = true;
+                        score += 10;
+                    }
+                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, isCorrect);
+                }
+            }
+            
+            await Materi.gradeSubmissionManually(submissionId, score);
+
+            res.status(200).send({ message: "Jawaban berhasil dikumpulkan!", score });
+
+        } else { // Mode Manual
+            const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'selesai');
+            for (const ans of answers) {
+                // Pastikan questionId valid sebelum menyimpan
+                const questionExists = await Materi.checkQuestionExists(ans.questionId);
+                if(questionExists){
+                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
+                }
+            }
+            res.status(200).send({ message: "Jawaban berhasil dikumpulkan dan akan dinilai oleh guru." });
+        }
+
+    } catch (error) {
+        console.error("Submit Answer Error:", error); // Log error untuk debugging
+        res.status(500).send({ message: "Terjadi kesalahan internal saat memproses jawaban." });
     }
 };

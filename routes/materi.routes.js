@@ -12,16 +12,20 @@ module.exports = function (app) {
 
   // === RUTE UNTUK SISWA (Hanya GET) ===
 
+  // --- PERBAIKAN FINAL ADA DI SINI ---
+  // Rute untuk submit jawaban diperbarui agar lebih fleksibel
+  app.post(
+    "/api/materi/:materiKey/submit",
+    [authJwt.verifyToken],
+    materiController.submitAnswers
+  );
+
   app.get(
     "/api/materi/:materiKey",
     [authJwt.verifyToken],
     materiController.getMateriSiswa
   );
-
-  // --- PERBAIKAN FINAL ADA DI SINI ---
-  // Kita definisikan dua rute terpisah untuk menangani SD (dengan kelas) dan TK (tanpa kelas).
-  // Ini adalah cara yang paling kompatibel.
-
+  
   // Rute untuk SD (membutuhkan jenjang dan kelas)
   app.get(
     "/api/mapel/:jenjang/:kelas/:namaMapel",
