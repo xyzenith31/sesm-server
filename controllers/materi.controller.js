@@ -47,9 +47,17 @@ exports.addChapter = async (req, res) => {
 exports.addQuestion = async (req, res) => {
     const { materiKey } = req.params;
     try {
-        const newQuestion = await Materi.createQuestion(materiKey, req.body);
+        const mediaFiles = req.files;
+        const media_urls = mediaFiles ? mediaFiles.map(file => file.path.replace(/\\/g, "/")) : [];
+        const questionData = {
+            ...req.body,
+            options: req.body.options ? JSON.parse(req.body.options) : [],
+            media_urls: media_urls
+        };
+        const newQuestion = await Materi.createQuestion(materiKey, questionData);
         res.status(201).json(newQuestion);
     } catch (error) {
+        console.error("Add Question Error:", error);
         res.status(500).send({ message: error.message });
     }
 };
@@ -67,14 +75,17 @@ exports.deleteChapter = async (req, res) => {
     }
 };
 
+// Fungsi ini memanggil model yang sudah kita perbarui
 exports.deleteQuestion = async (req, res) => {
     const { questionId } = req.params;
     try {
+        // Cukup panggil fungsi model, semua logika ada di sana
         const affectedRows = await Materi.deleteQuestion(questionId);
+        
         if (affectedRows === 0) {
             return res.status(404).send({ message: "Soal tidak ditemukan." });
         }
-        res.status(200).send({ message: "Soal berhasil dihapus." });
+        res.status(200).send({ message: "Soal dan file terkait berhasil dihapus." });
     } catch (error) {
         res.status(500).send({ message: error.message });
     }
@@ -82,7 +93,6 @@ exports.deleteQuestion = async (req, res) => {
 
 
 // === UNTUK SISWA ===
-
 exports.getChaptersBySubjectName = async (req, res) => {
     const { jenjang, kelas, namaMapel } = req.params;
     try {
@@ -96,16 +106,14 @@ exports.getChaptersBySubjectName = async (req, res) => {
 exports.getMateriSiswa = async (req, res) => {
     const { materiKey } = req.params;
     try {
-        // Logika ini diperbaiki agar hanya mengirim data yang dibutuhkan siswa
         const questionsWithAnswers = await Materi.getQuestionsByChapterKey(materiKey);
-        const questionsForSiswa = questionsWithAnswers.map(({ correctAnswer, jawaban_esai, ...q }) => q); // Hapus kunci jawaban
+        const questionsForSiswa = questionsWithAnswers.map(({ correctAnswer, jawaban_esai, ...q }) => q);
         res.status(200).json(questionsForSiswa);
     } catch (error) {
         res.status(500).send({ message: error.message });
     }
 };
 
-// --- FUNGSI SUBMIT JAWABAN (DIPERBAIKI) ---
 exports.submitAnswers = async (req, res) => {
     const userId = req.userId;
     const { materiKey } = req.params;
@@ -127,7 +135,7 @@ exports.submitAnswers = async (req, res) => {
                 const question = questions.find(q => q.id === ans.questionId);
                 let isCorrect = false;
                 
-                if (question) { // Validasi jika soal ada
+                if (question) {
                     if (question.correctAnswer && question.correctAnswer.toLowerCase() === (ans.answer || '').toLowerCase()) {
                         isCorrect = true;
                         score += 10;
@@ -137,13 +145,11 @@ exports.submitAnswers = async (req, res) => {
             }
             
             await Materi.gradeSubmissionManually(submissionId, score);
-
             res.status(200).send({ message: "Jawaban berhasil dikumpulkan!", score });
 
-        } else { // Mode Manual
+        } else {
             const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'selesai');
             for (const ans of answers) {
-                // Pastikan questionId valid sebelum menyimpan
                 const questionExists = await Materi.checkQuestionExists(ans.questionId);
                 if(questionExists){
                     await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
@@ -153,7 +159,7 @@ exports.submitAnswers = async (req, res) => {
         }
 
     } catch (error) {
-        console.error("Submit Answer Error:", error); // Log error untuk debugging
+        console.error("Submit Answer Error:", error);
         res.status(500).send({ message: "Terjadi kesalahan internal saat memproses jawaban." });
     }
 };

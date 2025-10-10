@@ -1,5 +1,6 @@
 const { authJwt } = require("../middlewares");
 const { materiController } = require("../controllers");
+const upload = require("../middlewares/upload.middleware.js"); // 1. Impor middleware upload
 
 module.exports = function (app) {
   app.use(function (req, res, next) {
@@ -62,9 +63,11 @@ module.exports = function (app) {
     materiController.addChapter
   );
 
+  // --- PERBAIKAN DI SINI ---
+  // Tambahkan middleware upload.array('media', 5) untuk menangani hingga 5 file
   app.post(
     `${adminPrefix}/:materiKey/questions`,
-    [authJwt.verifyToken, authJwt.isGuru],
+    [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)], // 2. Tambahkan middleware
     materiController.addQuestion
   );
 

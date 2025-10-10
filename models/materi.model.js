@@ -1,22 +1,20 @@
 // contoh-server-sesm/models/materi.model.js
 
 const db = require("../config/database.config.js");
+const fs = require('fs'); // <-- Tambahkan ini untuk mengelola file
+const path = require('path'); // <-- Tambahkan ini untuk mengelola path direktori
 
 const Materi = {};
 
-// === FUNGSI VALIDASI ===
+// ... (semua fungsi lain seperti getAdminDashboardData, createQuestion, dll. biarkan apa adanya) ...
 Materi.findChapterByMateriKey = async (materiKey) => {
     const [rows] = await db.execute("SELECT id, grading_mode FROM chapters WHERE materiKey = ?", [materiKey]);
     return rows[0];
 };
-
 Materi.checkQuestionExists = async (questionId) => {
     const [rows] = await db.execute("SELECT id FROM questions WHERE id = ?", [questionId]);
     return rows.length > 0;
 };
-
-
-// === Operasi READ ===
 Materi.getAdminDashboardData = async (jenjang, kelas) => {
     let query = `
         SELECT 
@@ -32,7 +30,6 @@ Materi.getAdminDashboardData = async (jenjang, kelas) => {
         WHERE s.jenjang = ?
     `;
     const params = [jenjang];
-
     if (jenjang.toUpperCase() === 'SD' && kelas) {
         query += " AND s.kelas = ?";
         params.push(kelas);
@@ -40,20 +37,16 @@ Materi.getAdminDashboardData = async (jenjang, kelas) => {
         query += " AND s.kelas IS NULL";
     }
      query += " ORDER BY s.nama_mapel, c.judul";
-
     const [rows] = await db.execute(query, params);
-
     const result = {};
     rows.forEach(row => {
         if (!row.nama_mapel) return;
-
         if (!result[row.nama_mapel]) {
             result[row.nama_mapel] = {
                 subject_id: row.subject_id,
                 chapters: []
             };
         }
-        
         if (row.chapter_id) {
             result[row.nama_mapel].chapters.push({
                 chapter_id: row.chapter_id,
@@ -66,18 +59,20 @@ Materi.getAdminDashboardData = async (jenjang, kelas) => {
     });
     return result;
 };
-
-
 Materi.getQuestionsByChapterKey = async (materiKey) => {
     const query = `
-        SELECT q.id, q.pertanyaan, q.tipe_soal, q.jawaban_esai
+        SELECT q.id, q.pertanyaan, q.tipe_soal, q.jawaban_esai, q.media_urls
         FROM questions q
         JOIN chapters c ON q.chapter_id = c.id
         WHERE c.materiKey = ?
     `;
     const [questions] = await db.execute(query, [materiKey]);
-
     for (const q of questions) {
+        if (q.media_urls) {
+            q.media_urls = JSON.parse(q.media_urls);
+        } else {
+            q.media_urls = [];
+        }
         if (q.tipe_soal.startsWith('pilihan-ganda')) {
             const [options] = await db.execute(
                 "SELECT opsi_jawaban, is_correct FROM question_options WHERE question_id = ?",
@@ -90,7 +85,6 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
     }
     return questions;
 };
-
 Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel) => {
     let query = `
         SELECT c.id, c.judul, c.materiKey 
@@ -99,27 +93,21 @@ Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel) => {
         WHERE s.jenjang = ? AND s.nama_mapel = ?
     `;
     const params = [jenjang, namaMapel];
-
     if (jenjang.toUpperCase() === 'SD') {
         query += " AND s.kelas = ?";
         params.push(kelas);
     } else {
         query += " AND s.kelas IS NULL";
     }
-
     const [rows] = await db.execute(query, params);
     return rows;
 };
-
-
-// === Operasi CREATE ===
 Materi.createChapter = async (judul, subjectId) => {
     const [subjects] = await db.execute("SELECT jenjang, kelas, nama_mapel FROM subjects WHERE id = ?", [subjectId]);
     if (subjects.length === 0) {
         throw new Error("Subject ID tidak ditemukan.");
     }
     const { jenjang, kelas, nama_mapel } = subjects[0];
-
     const materiKey = `${jenjang.toLowerCase()}-${kelas || 'tk'}-${nama_mapel.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
     const [result] = await db.execute(
         "INSERT INTO chapters (judul, materiKey, subject_id) VALUES (?, ?, ?)",
@@ -127,20 +115,17 @@ Materi.createChapter = async (judul, subjectId) => {
     );
     return { id: result.insertId, judul, materiKey };
 };
-
 Materi.createQuestion = async (materiKey, questionData) => {
     const [chapters] = await db.execute("SELECT id FROM chapters WHERE materiKey = ?", [materiKey]);
     if (chapters.length === 0) throw new Error("Chapter not found");
     const chapterId = chapters[0].id;
-
-    const { type, question, options, correctAnswer, essayAnswer } = questionData;
-
+    const { type, question, options, correctAnswer, essayAnswer, media_urls } = questionData;
+    const mediaUrlsJson = JSON.stringify(media_urls || []);
     const [result] = await db.execute(
-        "INSERT INTO questions (pertanyaan, tipe_soal, jawaban_esai, chapter_id) VALUES (?, ?, ?, ?)",
-        [question, type, essayAnswer || null, chapterId]
+        "INSERT INTO questions (pertanyaan, tipe_soal, jawaban_esai, chapter_id, media_urls) VALUES (?, ?, ?, ?, ?)",
+        [question, type, essayAnswer || null, chapterId, mediaUrlsJson]
     );
     const questionId = result.insertId;
-
     if (type.startsWith('pilihan-ganda') && options) {
         for (const opt of options) {
             await db.execute(
@@ -151,20 +136,46 @@ Materi.createQuestion = async (materiKey, questionData) => {
     }
     return { id: questionId, ...questionData };
 };
-
-// === Operasi DELETE ===
 Materi.deleteChapter = async (materiKey) => {
     const [result] = await db.execute("DELETE FROM chapters WHERE materiKey = ?", [materiKey]);
     return result.affectedRows;
 };
 
+
+// --- FUNGSI INI DIPERBARUI ---
 Materi.deleteQuestion = async (questionId) => {
+    // 1. Ambil informasi file dari database SEBELUM menghapus datanya
+    const [rows] = await db.execute("SELECT media_urls FROM questions WHERE id = ?", [questionId]);
+    
+    if (rows.length > 0 && rows[0].media_urls) {
+        try {
+            const mediaUrls = JSON.parse(rows[0].media_urls);
+            
+            // 2. Loop setiap file dan hapus dari server
+            mediaUrls.forEach(fileUrl => {
+                // path.join memastikan path file benar, __dirname merujuk ke direktori saat ini
+                const filePath = path.join(__dirname, '..', fileUrl); 
+                
+                // Cek apakah file ada, lalu hapus
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                    console.log(`File dihapus: ${filePath}`);
+                } else {
+                    console.log(`File tidak ditemukan, skip: ${filePath}`);
+                }
+            });
+        } catch(err) {
+            console.error("Gagal menghapus file terkait:", err);
+            // Anda bisa memilih untuk menghentikan proses atau lanjut menghapus data DB
+        }
+    }
+
+    // 3. Lanjutkan menghapus record soal dari database
     const [result] = await db.execute("DELETE FROM questions WHERE id = ?", [questionId]);
     return result.affectedRows;
 };
 
-// === FUNGSI-FUNGSI PENILAIAN ===
-
+// ... (sisa fungsi lainnya biarkan apa adanya) ...
 Materi.updateGradingMode = async (chapterId, mode) => {
     const [result] = await db.execute(
         "UPDATE chapters SET grading_mode = ? WHERE id = ?",
@@ -172,7 +183,6 @@ Materi.updateGradingMode = async (chapterId, mode) => {
     );
     return result.affectedRows;
 };
-
 Materi.createSubmission = async (userId, chapterId, score, isSystemGraded, status) => {
     const [result] = await db.execute(
         "INSERT INTO student_submissions (user_id, chapter_id, score, is_graded_by_system, status) VALUES (?, ?, ?, ?, ?)",
@@ -180,14 +190,12 @@ Materi.createSubmission = async (userId, chapterId, score, isSystemGraded, statu
     );
     return result.insertId;
 };
-
 Materi.saveStudentAnswer = async (submissionId, questionId, answerText, isCorrect) => {
     await db.execute(
         "INSERT INTO student_answers (submission_id, question_id, answer_text, is_correct) VALUES (?, ?, ?, ?)",
         [submissionId, questionId, answerText, isCorrect]
     );
 };
-
 Materi.getAllSubmissionsForChapter = async (chapterId) => {
     const [rows] = await db.execute(`
         SELECT 
@@ -204,7 +212,6 @@ Materi.getAllSubmissionsForChapter = async (chapterId) => {
     `, [chapterId]);
     return rows;
 };
-
 Materi.getSubmissionDetails = async (submissionId) => {
     const [rows] = await db.execute(`
         SELECT 
@@ -221,7 +228,6 @@ Materi.getSubmissionDetails = async (submissionId) => {
     `, [submissionId]);
     return rows;
 };
-
 Materi.gradeSubmissionManually = async (submissionId, score) => {
     const [result] = await db.execute(
         "UPDATE student_submissions SET score = ?, status = 'dinilai' WHERE id = ?",
@@ -229,8 +235,6 @@ Materi.gradeSubmissionManually = async (submissionId, score) => {
     );
     return result.affectedRows;
 };
-
-// --- FUNGSI BARU UNTUK OVERRIDE NILAI ---
 Materi.overrideAnswerCorrectness = async (answerId, isCorrect) => {
     const [result] = await db.execute(
         "UPDATE student_answers SET is_correct = ? WHERE id = ?",
@@ -238,14 +242,11 @@ Materi.overrideAnswerCorrectness = async (answerId, isCorrect) => {
     );
     return result.affectedRows;
 };
-
 Materi.getSubmissionIdFromAnswer = async (answerId) => {
     const [rows] = await db.execute("SELECT submission_id FROM student_answers WHERE id = ?", [answerId]);
     return rows[0]?.submission_id;
 };
-
 Materi.recalculateScore = async (submissionId) => {
-    // Asumsi setiap jawaban benar bernilai 10 poin
     const [rows] = await db.execute(
         "SELECT COUNT(*) as correctCount FROM student_answers WHERE submission_id = ? AND is_correct = 1",
         [submissionId]
