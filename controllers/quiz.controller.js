@@ -1,0 +1,136 @@
+const Quiz = require("../models/quiz.model.js");
+
+// === UNTUK GURU / ADMIN ===
+
+exports.createQuiz = async (req, res) => {
+    try {
+        const { title, description, recommended_level } = req.body;
+        const creatorId = req.userId;
+
+        if (!title) {
+            return res.status(400).send({ message: "Judul kuis tidak boleh kosong." });
+        }
+
+        const coverImageUrl = req.file ? req.file.path.replace(/\\/g, "/") : null;
+
+        const newQuiz = await Quiz.create(title, description, creatorId, coverImageUrl, recommended_level);
+        
+        res.status(201).send({ message: "Kuis berhasil dibuat!", data: newQuiz });
+
+    } catch (error) {
+        console.error("ERROR SAAT CREATE QUIZ:", error);
+        res.status(500).send({ message: "Terjadi kesalahan internal saat membuat kuis." });
+    }
+};
+
+exports.addQuestionToQuiz = async (req, res) => {
+    const { quizId } = req.params;
+    const { question_text, question_type, options } = req.body;
+    
+    const question_image_url = req.file ? req.file.path.replace(/\\/g, "/") : null;
+
+    if (!question_text || !question_type) {
+        return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
+    }
+
+    try {
+        let parsedOptions;
+        if (question_type === 'pilihan-ganda') {
+            parsedOptions = JSON.parse(options);
+            if (!parsedOptions || parsedOptions.length < 2 || !parsedOptions.some(o => o.isCorrect)) {
+                return res.status(400).send({ message: "Pilihan ganda harus memiliki minimal 2 opsi dan satu jawaban benar." });
+            }
+        }
+
+        const questionData = {
+            question_text,
+            question_image_url,
+            question_type,
+            options: parsedOptions,
+        };
+
+        const newQuestion = await Quiz.addQuestion(quizId, questionData);
+        res.status(201).send({ message: "Soal berhasil ditambahkan.", data: newQuestion });
+    } catch (error) {
+        console.error("Add Question Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan internal saat menambah soal." });
+    }
+};
+
+exports.deleteQuiz = async (req, res) => {
+    try {
+        const affectedRows = await Quiz.delete(req.params.quizId);
+        if (affectedRows === 0) return res.status(404).send({ message: "Kuis tidak ditemukan." });
+        res.status(200).send({ message: "Kuis berhasil dihapus." });
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+exports.deleteQuestion = async (req, res) => {
+    try {
+        const affectedRows = await Quiz.deleteQuestion(req.params.questionId);
+        if (affectedRows === 0) return res.status(404).send({ message: "Soal tidak ditemukan." });
+        res.status(200).send({ message: "Soal berhasil dihapus." });
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+exports.getQuizDetailsForAdmin = async (req, res) => {
+    try {
+        // Memanggil fungsi khusus admin yang menampilkan kunci jawaban
+        const questions = await Quiz.getQuestionsForAdmin(req.params.quizId);
+        res.status(200).json(questions);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+// === UNTUK SISWA ===
+
+exports.listAllQuizzes = async (req, res) => {
+    try {
+        const quizzes = await Quiz.getAll();
+        res.status(200).json(quizzes);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+exports.getQuizForStudent = async (req, res) => {
+    try {
+        // Memanggil fungsi khusus siswa yang menyembunyikan kunci jawaban
+        const questions = await Quiz.getQuestionsForQuiz(req.params.quizId);
+        res.status(200).json(questions);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+exports.submitQuiz = async (req, res) => {
+    const userId = req.userId;
+    const { quizId } = req.params;
+    const { answers } = req.body;
+
+    if (!answers || !Array.isArray(answers)) {
+        return res.status(400).send({ message: "Format jawaban tidak valid." });
+    }
+
+    try {
+        const result = await Quiz.submit(userId, quizId, answers);
+        res.status(200).send({ message: "Kuis berhasil dikumpulkan!", ...result });
+    } catch (error) {
+        res.status(500).send({ message: "Gagal memproses jawaban: " + error.message });
+    }
+};
+
+exports.getSubmissionsForQuiz = async (req, res) => {
+    try {
+        const submissions = await Quiz.getSubmissionsByQuizId(req.params.quizId);
+        res.status(200).json(submissions);
+    } catch (error) {
+        console.error("Error in getSubmissionsForQuiz controller:", error);
+        res.status(500).send({ message: "Gagal mengambil data submission kuis: " + error.message });
+    }
+};
