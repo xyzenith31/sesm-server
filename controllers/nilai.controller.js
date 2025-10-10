@@ -4,7 +4,7 @@ const Materi = require("../models/materi.model.js");
 // Mengubah mode penilaian
 exports.updateGradingMode = async (req, res) => {
     const { chapterId } = req.params;
-    const { mode } = req.body; // 'otomatis' atau 'manual'
+    const { mode } = req.body;
 
     if (!['otomatis', 'manual'].includes(mode)) {
         return res.status(400).send({ message: "Mode tidak valid." });
@@ -18,11 +18,11 @@ exports.updateGradingMode = async (req, res) => {
     }
 };
 
-// Mendapatkan daftar submission yang perlu dinilai
-exports.getSubmissionsForGrading = async (req, res) => {
+// Mendapatkan daftar submission untuk satu bab
+exports.getSubmissionsForChapter = async (req, res) => {
     const { chapterId } = req.params;
     try {
-        const submissions = await Materi.getSubmissionsForGrading(chapterId);
+        const submissions = await Materi.getAllSubmissionsForChapter(chapterId);
         res.status(200).json(submissions);
     } catch (error) {
         res.status(500).send({ message: error.message });
@@ -41,7 +41,7 @@ exports.getSubmissionDetails = async (req, res) => {
 };
 
 
-// Memberikan nilai manual
+// Memberikan nilai manual untuk pertama kali
 exports.gradeSubmission = async (req, res) => {
     const { submissionId } = req.params;
     const { score } = req.body;
@@ -61,12 +61,24 @@ exports.gradeSubmission = async (req, res) => {
     }
 };
 
-exports.getSubmissionsForChapter = async (req, res) => {
-    const { chapterId } = req.params;
+// --- CONTROLLER BARU UNTUK OVERRIDE JAWABAN ---
+exports.overrideAnswer = async (req, res) => {
+    const { answerId } = req.params;
+    const { isCorrect } = req.body;
+
     try {
-        // Panggil fungsi baru dari model
-        const submissions = await Materi.getAllSubmissionsForChapter(chapterId);
-        res.status(200).json(submissions);
+        const submissionId = await Materi.getSubmissionIdFromAnswer(answerId);
+        if (!submissionId) {
+            return res.status(404).send({ message: "Jawaban tidak ditemukan." });
+        }
+
+        // Ubah status jawaban
+        await Materi.overrideAnswerCorrectness(answerId, isCorrect);
+
+        // Hitung ulang skor total dan update
+        const newScore = await Materi.recalculateScore(submissionId);
+
+        res.status(200).send({ message: "Status jawaban berhasil diubah.", newScore });
     } catch (error) {
         res.status(500).send({ message: error.message });
     }

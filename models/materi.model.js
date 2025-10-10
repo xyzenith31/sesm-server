@@ -4,7 +4,7 @@ const db = require("../config/database.config.js");
 
 const Materi = {};
 
-// === FUNGSI BARU UNTUK VALIDASI ===
+// === FUNGSI VALIDASI ===
 Materi.findChapterByMateriKey = async (materiKey) => {
     const [rows] = await db.execute("SELECT id, grading_mode FROM chapters WHERE materiKey = ?", [materiKey]);
     return rows[0];
@@ -16,7 +16,7 @@ Materi.checkQuestionExists = async (questionId) => {
 };
 
 
-// === Operasi READ (kode lainnya tidak berubah) ===
+// === Operasi READ ===
 Materi.getAdminDashboardData = async (jenjang, kelas) => {
     let query = `
         SELECT 
@@ -112,8 +112,7 @@ Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel) => {
 };
 
 
-// === Operasi CREATE, DELETE, dan PENILAIAN (tidak berubah) ===
-// ... (Salin sisa kode dari file Anda yang sudah ada di sini)
+// === Operasi CREATE ===
 Materi.createChapter = async (judul, subjectId) => {
     const [subjects] = await db.execute("SELECT jenjang, kelas, nama_mapel FROM subjects WHERE id = ?", [subjectId]);
     if (subjects.length === 0) {
@@ -153,6 +152,7 @@ Materi.createQuestion = async (materiKey, questionData) => {
     return { id: questionId, ...questionData };
 };
 
+// === Operasi DELETE ===
 Materi.deleteChapter = async (materiKey) => {
     const [result] = await db.execute("DELETE FROM chapters WHERE materiKey = ?", [materiKey]);
     return result.affectedRows;
@@ -162,6 +162,8 @@ Materi.deleteQuestion = async (questionId) => {
     const [result] = await db.execute("DELETE FROM questions WHERE id = ?", [questionId]);
     return result.affectedRows;
 };
+
+// === FUNGSI-FUNGSI PENILAIAN ===
 
 Materi.updateGradingMode = async (chapterId, mode) => {
     const [result] = await db.execute(
@@ -186,35 +188,6 @@ Materi.saveStudentAnswer = async (submissionId, questionId, answerText, isCorrec
     );
 };
 
-Materi.getSubmissionsForGrading = async (chapterId) => {
-    const [rows] = await db.execute(`
-        SELECT ss.id, u.nama as student_name, ss.submission_date 
-        FROM student_submissions ss
-        JOIN users u ON ss.user_id = u.id
-        WHERE ss.chapter_id = ? AND ss.status = 'selesai' AND ss.is_graded_by_system = false
-    `, [chapterId]);
-    return rows;
-};
-
-Materi.getSubmissionDetails = async (submissionId) => {
-    const [rows] = await db.execute(`
-        SELECT q.pertanyaan, sa.answer_text, q.jawaban_esai as correct_essay_answer 
-        FROM student_answers sa
-        JOIN questions q ON sa.question_id = q.id
-        WHERE sa.submission_id = ?
-    `, [submissionId]);
-    return rows;
-};
-
-Materi.gradeSubmissionManually = async (submissionId, score) => {
-    const [result] = await db.execute(
-        "UPDATE student_submissions SET score = ?, status = 'dinilai' WHERE id = ?",
-        [score, submissionId]
-    );
-    return result.affectedRows;
-};
-
-// GANTI FUNGSI LAMA 'getSubmissionsForGrading' DENGAN FUNGSI BARU INI
 Materi.getAllSubmissionsForChapter = async (chapterId) => {
     const [rows] = await db.execute(`
         SELECT 
@@ -230,6 +203,58 @@ Materi.getAllSubmissionsForChapter = async (chapterId) => {
         ORDER BY ss.status ASC, ss.submission_date DESC
     `, [chapterId]);
     return rows;
+};
+
+Materi.getSubmissionDetails = async (submissionId) => {
+    const [rows] = await db.execute(`
+        SELECT 
+            q.pertanyaan,
+            q.tipe_soal,
+            sa.id as answerId,
+            sa.answer_text,
+            sa.is_correct,
+            q.jawaban_esai AS correct_essay,
+            (SELECT qo.opsi_jawaban FROM question_options qo WHERE qo.question_id = q.id AND qo.is_correct = 1 LIMIT 1) AS correct_mcq
+        FROM student_answers sa
+        JOIN questions q ON sa.question_id = q.id
+        WHERE sa.submission_id = ?
+    `, [submissionId]);
+    return rows;
+};
+
+Materi.gradeSubmissionManually = async (submissionId, score) => {
+    const [result] = await db.execute(
+        "UPDATE student_submissions SET score = ?, status = 'dinilai' WHERE id = ?",
+        [score, submissionId]
+    );
+    return result.affectedRows;
+};
+
+// --- FUNGSI BARU UNTUK OVERRIDE NILAI ---
+Materi.overrideAnswerCorrectness = async (answerId, isCorrect) => {
+    const [result] = await db.execute(
+        "UPDATE student_answers SET is_correct = ? WHERE id = ?",
+        [isCorrect, answerId]
+    );
+    return result.affectedRows;
+};
+
+Materi.getSubmissionIdFromAnswer = async (answerId) => {
+    const [rows] = await db.execute("SELECT submission_id FROM student_answers WHERE id = ?", [answerId]);
+    return rows[0]?.submission_id;
+};
+
+Materi.recalculateScore = async (submissionId) => {
+    // Asumsi setiap jawaban benar bernilai 10 poin
+    const [rows] = await db.execute(
+        "SELECT COUNT(*) as correctCount FROM student_answers WHERE submission_id = ? AND is_correct = 1",
+        [submissionId]
+    );
+    const newScore = rows[0].correctCount * 10;
+    
+    await db.execute("UPDATE student_submissions SET score = ? WHERE id = ?", [newScore, submissionId]);
+    
+    return newScore;
 };
 
 module.exports = Materi;
