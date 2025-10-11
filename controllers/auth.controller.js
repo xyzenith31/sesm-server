@@ -61,7 +61,7 @@ exports.login = async (req, res) => {
       nama: user.nama,
       jenjang: user.jenjang,
       kelas: user.kelas,
-      role: user.role, // <-- WAJIB ADA
+      role: user.role,
       accessToken: token
     });
 

@@ -53,8 +53,6 @@ Quiz.updateQuestion = async (questionId, data) => {
     }
 };
 
-// --- Sisa file tetap sama, tidak perlu diubah ---
-
 Quiz.addQuestion = async (quizId, data) => {
     const { question_text, question_type, options, media_attachments } = data;
     const conn = await db.getConnection();
