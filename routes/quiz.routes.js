@@ -1,3 +1,4 @@
+// contoh-server-sesm/routes/quiz.routes.js
 const { authJwt } = require("../middlewares");
 const upload = require("../middlewares/upload.middleware.js");
 const controller = require("../controllers/quiz.controller.js");
@@ -11,13 +12,11 @@ module.exports = function (app) {
         next();
     });
 
-    // === RUTE UNTUK SISWA (TERBUKA UNTUK SEMUA YANG LOGIN) ===
+    // === RUTE UNTUK SISWA ===
     const studentPrefix = "/api/quizzes";
-
     app.get(studentPrefix, [authJwt.verifyToken], controller.listAllQuizzes);
     app.get(`${studentPrefix}/:quizId`, [authJwt.verifyToken], controller.getQuizForStudent);
     app.post(`${studentPrefix}/:quizId/submit`, [authJwt.verifyToken], controller.submitQuiz);
-
 
     // === RUTE UNTUK GURU (MANAJEMEN KUIS) ===
     const adminPrefix = "/api/admin/quizzes";
@@ -40,18 +39,23 @@ module.exports = function (app) {
         controller.getQuizDetailsForAdmin
     );
 
-    // --- ▼▼▼ TAMBAHKAN RUTE BARU INI DI SINI ▼▼▼ ---
     app.get(
         `${adminPrefix}/:quizId/submissions`,
         [authJwt.verifyToken, authJwt.isGuru],
         controller.getSubmissionsForQuiz
     );
-    // --- Batas Penambahan ---
 
     app.post(
         `${adminPrefix}/:quizId/questions`,
         [authJwt.verifyToken, authJwt.isGuru, upload.single('questionImage')],
         controller.addQuestionToQuiz
+    );
+    
+    // --- RUTE BARU UNTUK BANK SOAL ---
+    app.post(
+        `${adminPrefix}/:quizId/add-from-bank`,
+        [authJwt.verifyToken, authJwt.isGuru],
+        controller.addQuestionsFromBank
     );
 
     app.delete(

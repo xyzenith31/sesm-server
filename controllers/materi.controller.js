@@ -1,8 +1,28 @@
 // contoh-server-sesm/controllers/materi.controller.js
-
 const Materi = require("../models/materi.model.js");
 
 // === UNTUK GURU / ADMIN ===
+
+// --- FUNGSI BARU UNTUK BANK SOAL ---
+exports.getAllQuestionsForBank = async (req, res) => {
+    // Ambil jenjang & kelas dari user yang login, bukan dari query params
+    // Middleware authJwt harus sudah menambahkan req.user
+    // Untuk sementara, kita asumsikan guru hanya bisa akses jenjangnya sendiri
+    // Kita akan butuh data ini dari token atau session di masa depan
+    const { jenjang, kelas } = req.query; // Sementara pakai query
+
+    if (!jenjang) {
+        return res.status(400).send({ message: "Query 'jenjang' dibutuhkan." });
+    }
+    // Kelas tidak wajib, karena TK tidak punya kelas
+    
+    try {
+        const data = await Materi.getAllQuestionsForBank(jenjang, kelas);
+        res.status(200).json(data);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
 
 exports.getMateriForAdmin = async (req, res) => {
     const { jenjang, kelas } = req.query;
@@ -24,8 +44,15 @@ exports.getMateriForAdmin = async (req, res) => {
 exports.getDetailMateriForAdmin = async (req, res) => {
     const { materiKey } = req.params;
     try {
+        // Ambil judul chapter
+        const chapter = await Materi.findChapterByMateriKey(materiKey);
+        // Ambil soal-soal
         const questions = await Materi.getQuestionsByChapterKey(materiKey);
-        res.status(200).json({ questions });
+        // Gabungkan
+        res.status(200).json({ 
+            judul: chapter ? chapter.judul : "Tidak Ditemukan",
+            questions 
+        });
     } catch (error) {
         res.status(500).send({ message: error.message });
     }
@@ -75,13 +102,10 @@ exports.deleteChapter = async (req, res) => {
     }
 };
 
-// Fungsi ini memanggil model yang sudah kita perbarui
 exports.deleteQuestion = async (req, res) => {
     const { questionId } = req.params;
     try {
-        // Cukup panggil fungsi model, semua logika ada di sana
         const affectedRows = await Materi.deleteQuestion(questionId);
-        
         if (affectedRows === 0) {
             return res.status(404).send({ message: "Soal tidak ditemukan." });
         }
@@ -90,7 +114,6 @@ exports.deleteQuestion = async (req, res) => {
         res.status(500).send({ message: error.message });
     }
 };
-
 
 // === UNTUK SISWA ===
 exports.getChaptersBySubjectName = async (req, res) => {

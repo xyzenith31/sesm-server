@@ -1,6 +1,7 @@
+// contoh-server-sesm/routes/materi.routes.js
 const { authJwt } = require("../middlewares");
 const { materiController } = require("../controllers");
-const upload = require("../middlewares/upload.middleware.js"); // 1. Impor middleware upload
+const upload = require("../middlewares/upload.middleware.js");
 
 module.exports = function (app) {
   app.use(function (req, res, next) {
@@ -11,10 +12,7 @@ module.exports = function (app) {
     next();
   });
 
-  // === RUTE UNTUK SISWA (Hanya GET) ===
-
-  // --- PERBAIKAN FINAL ADA DI SINI ---
-  // Rute untuk submit jawaban diperbarui agar lebih fleksibel
+  // === RUTE UNTUK SISWA ===
   app.post(
     "/api/materi/:materiKey/submit",
     [authJwt.verifyToken],
@@ -27,58 +25,61 @@ module.exports = function (app) {
     materiController.getMateriSiswa
   );
   
-  // Rute untuk SD (membutuhkan jenjang dan kelas)
   app.get(
     "/api/mapel/:jenjang/:kelas/:namaMapel",
     [authJwt.verifyToken],
     materiController.getChaptersBySubjectName
   );
 
-  // Rute untuk TK (hanya membutuhkan jenjang, tanpa kelas)
   app.get(
     "/api/mapel/:jenjang/:namaMapel",
     [authJwt.verifyToken],
     materiController.getChaptersBySubjectName
   );
 
+  // === RUTE UNTUK GURU / ADMIN ===
+  const adminPrefix = "/api/admin";
 
-  // === RUTE UNTUK GURU / ADMIN (CRUD LENGKAP & TERPROTEKSI) ===
-  const adminPrefix = "/api/admin/materi";
-
+  // --- RUTE BARU UNTUK BANK SOAL ---
   app.get(
-    adminPrefix,
+    `${adminPrefix}/all-questions`,
+    [authJwt.verifyToken, authJwt.isGuru],
+    materiController.getAllQuestionsForBank
+  );
+
+  // Rute Manajemen Materi
+  app.get(
+    `${adminPrefix}/materi`,
     [authJwt.verifyToken, authJwt.isGuru],
     materiController.getMateriForAdmin
   );
 
   app.get(
-    `${adminPrefix}/:materiKey`,
+    `${adminPrefix}/materi/:materiKey`,
     [authJwt.verifyToken, authJwt.isGuru],
     materiController.getDetailMateriForAdmin
   );
 
   app.post(
-    `${adminPrefix}/chapters`,
+    `${adminPrefix}/materi/chapters`,
     [authJwt.verifyToken, authJwt.isGuru],
     materiController.addChapter
   );
 
-  // --- PERBAIKAN DI SINI ---
-  // Tambahkan middleware upload.array('media', 5) untuk menangani hingga 5 file
   app.post(
-    `${adminPrefix}/:materiKey/questions`,
-    [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)], // 2. Tambahkan middleware
+    `${adminPrefix}/materi/:materiKey/questions`,
+    [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)],
     materiController.addQuestion
   );
 
   app.delete(
-    `${adminPrefix}/chapters/:materiKey`,
+    `${adminPrefix}/materi/chapters/:materiKey`,
     [authJwt.verifyToken, authJwt.isGuru],
     materiController.deleteChapter
   );
 
   app.delete(
-    `${adminPrefix}/questions/:questionId`,
+    `${adminPrefix}/materi/questions/:questionId`,
     [authJwt.verifyToken, authJwt.isGuru],
     materiController.deleteQuestion
   );

@@ -1,3 +1,4 @@
+// contoh-server-sesm/controllers/quiz.controller.js
 const Quiz = require("../models/quiz.model.js");
 
 // === UNTUK GURU / ADMIN ===
@@ -57,6 +58,24 @@ exports.addQuestionToQuiz = async (req, res) => {
     }
 };
 
+// --- FUNGSI BARU UNTUK BANK SOAL ---
+exports.addQuestionsFromBank = async (req, res) => {
+    const { quizId } = req.params;
+    const { questionIds } = req.body; // Berupa array of IDs
+
+    if (!questionIds || !Array.isArray(questionIds) || questionIds.length === 0) {
+        return res.status(400).send({ message: "Daftar ID soal tidak valid." });
+    }
+
+    try {
+        const questionsAdded = await Quiz.addQuestionsFromBank(quizId, questionIds);
+        res.status(201).send({ message: `${questionsAdded} soal berhasil ditambahkan dari bank.` });
+    } catch (error) {
+        console.error("Add from Bank Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan saat menambah soal dari bank." });
+    }
+};
+
 exports.deleteQuiz = async (req, res) => {
     try {
         const affectedRows = await Quiz.delete(req.params.quizId);
@@ -79,7 +98,6 @@ exports.deleteQuestion = async (req, res) => {
 
 exports.getQuizDetailsForAdmin = async (req, res) => {
     try {
-        // Memanggil fungsi khusus admin yang menampilkan kunci jawaban
         const questions = await Quiz.getQuestionsForAdmin(req.params.quizId);
         res.status(200).json(questions);
     } catch (error) {
@@ -88,7 +106,6 @@ exports.getQuizDetailsForAdmin = async (req, res) => {
 };
 
 // === UNTUK SISWA ===
-
 exports.listAllQuizzes = async (req, res) => {
     try {
         const quizzes = await Quiz.getAll();
@@ -100,7 +117,6 @@ exports.listAllQuizzes = async (req, res) => {
 
 exports.getQuizForStudent = async (req, res) => {
     try {
-        // Memanggil fungsi khusus siswa yang menyembunyikan kunci jawaban
         const questions = await Quiz.getQuestionsForQuiz(req.params.quizId);
         res.status(200).json(questions);
     } catch (error) {
