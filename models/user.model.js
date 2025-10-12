@@ -4,14 +4,12 @@ const bcrypt = require('bcryptjs');
 
 const User = {};
 
-// Tambahkan fungsi findById
 User.findById = async (userId) => {
     const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [userId]);
     return rows[0];
 };
 
 User.create = async (newUser) => {
-  // Menambahkan kolom 'role' saat registrasi
   const [result] = await db.execute(
     "INSERT INTO users (username, email, password, nama, umur, role) VALUES (?, ?, ?, ?, ?, ?)",
     [newUser.username, newUser.email, newUser.password, newUser.nama, newUser.umur, newUser.role || 'siswa']
@@ -20,7 +18,6 @@ User.create = async (newUser) => {
 };
 
 User.findByUsernameOrEmail = async (identifier) => {
-  // Memastikan kolom 'role' juga diambil saat login
   const [rows] = await db.execute(
     "SELECT * FROM users WHERE username = ? OR email = ?",
     [identifier, identifier]
@@ -71,5 +68,31 @@ User.updateProfile = async (userId, data) => {
   return result;
 };
 
+
+// --- FUNGSI UNTUK FORGOT PASSWORD ---
+
+User.saveResetToken = async (userId, token, expires) => {
+    const [result] = await db.execute(
+        "UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?",
+        [token, expires, userId]
+    );
+    return result.affectedRows;
+};
+
+User.findUserByResetToken = async (token) => {
+    const [rows] = await db.execute(
+        "SELECT * FROM users WHERE reset_token = ? AND reset_token_expires > NOW()",
+        [token]
+    );
+    return rows[0];
+};
+
+User.resetPassword = async (userId, hashedPassword) => {
+    const [result] = await db.execute(
+        "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
+        [hashedPassword, userId]
+    );
+    return result.affectedRows;
+};
 
 module.exports = User;

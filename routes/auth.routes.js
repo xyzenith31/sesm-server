@@ -10,8 +10,13 @@ module.exports = function(app) {
     next();
   });
 
+  // Rute Registrasi & Login
   app.post("/api/auth/register", [verifyRegister.checkDuplicateUsernameOrEmail], controller.register);
-
-  // Route untuk login
   app.post("/api/auth/login", controller.login);
+
+  // Rute Lupa Password
+  app.post("/api/auth/forgot-password", controller.forgotPassword);
+  app.post("/api/auth/verify-code", controller.verifyCode);
+  app.post("/api/auth/reset-password", controller.resetPassword);
+  app.post("/api/auth/resend-code", controller.resendCode);
 };
