@@ -71,6 +71,13 @@ module.exports = function (app) {
     [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)],
     materiController.addQuestion
   );
+  
+  // --- RUTE BARU UNTUK EDIT SOAL ---
+  app.put(
+    `${adminPrefix}/materi/questions/:questionId`,
+    [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)],
+    materiController.updateQuestion
+  );
 
   app.delete(
     `${adminPrefix}/materi/chapters/:materiKey`,

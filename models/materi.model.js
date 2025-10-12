@@ -5,6 +5,50 @@ const path = require('path');
 
 const Materi = {};
 
+// --- FUNGSI EDIT SOAL (DIPERBAIKI) ---
+Materi.updateQuestion = async (questionId, questionData) => {
+    const { type, question, options, correctAnswer, essayAnswer, new_media_urls, attachments } = questionData;
+    const conn = await db.getConnection();
+
+    try {
+        await conn.beginTransaction();
+        
+        // Gabungkan lampiran yang sudah ada (dari frontend) dengan file yang baru diupload
+        const allMedia = [...(attachments || []), ...(new_media_urls || [])];
+        const mediaUrlsJson = JSON.stringify(allMedia);
+
+        // Update tabel 'questions'
+        await conn.execute(
+            "UPDATE questions SET pertanyaan = ?, tipe_soal = ?, jawaban_esai = ?, media_urls = ? WHERE id = ?",
+            [question, type, essayAnswer || null, mediaUrlsJson, questionId]
+        );
+
+        // Jika soal pilihan ganda, hapus opsi lama dan masukkan yang baru
+        if (type.startsWith('pilihan-ganda') && options) {
+            await conn.execute("DELETE FROM question_options WHERE question_id = ?", [questionId]);
+            for (const opt of options) {
+                // --- INI BAGIAN YANG DIPERBAIKI ---
+                // Menggunakan 'conn.execute' agar tetap dalam transaksi yang sama
+                await conn.execute(
+                    "INSERT INTO question_options (opsi_jawaban, is_correct, question_id) VALUES (?, ?, ?)",
+                    [opt, opt === correctAnswer, questionId]
+                );
+            }
+        }
+
+        await conn.commit();
+        return { id: questionId, ...questionData };
+    } catch (error) {
+        await conn.rollback();
+        throw error;
+    } finally {
+        conn.release();
+    }
+};
+
+
+// --- KODE LAMA DI BAWAH INI TIDAK BERUBAH ---
+
 // --- FUNGSI BARU UNTUK BANK SOAL ---
 Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
     let query = `
@@ -184,10 +228,12 @@ Materi.deleteQuestion = async (questionId) => {
     if (rows.length > 0 && rows[0].media_urls) {
         try {
             const mediaUrls = JSON.parse(rows[0].media_urls);
-            mediaUrls.forEach(fileUrl => {
-                const filePath = path.join(__dirname, '..', fileUrl); 
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
+            mediaUrls.forEach(item => {
+                if (item.type === 'file') {
+                    const filePath = path.join(__dirname, '..', item.url); 
+                    if (fs.existsSync(filePath)) {
+                        fs.unlinkSync(filePath);
+                    }
                 }
             });
         } catch(err) {

@@ -1,20 +1,42 @@
 // contoh-server-sesm/controllers/materi.controller.js
 const Materi = require("../models/materi.model.js");
 
+// === FUNGSI BARU UNTUK EDIT SOAL ===
+exports.updateQuestion = async (req, res) => {
+    const { questionId } = req.params;
+    try {
+        const mediaFiles = req.files;
+        // Buat URL yang bisa diakses dari file yang diupload
+        const new_media_urls = mediaFiles ? mediaFiles.map(file => file.path.replace(/\\/g, "/")) : [];
+
+        const questionData = {
+            ...req.body,
+            // Pastikan options di-parse dari string JSON
+            options: req.body.options ? JSON.parse(req.body.options) : [],
+            // Gabungkan media baru jika ada
+            media_urls: new_media_urls
+        };
+
+        const updatedQuestion = await Materi.updateQuestion(questionId, questionData);
+        res.status(200).json({ message: "Soal berhasil diperbarui.", data: updatedQuestion });
+    } catch (error) {
+        console.error("Update Question Error:", error);
+        res.status(500).send({ message: error.message });
+    }
+};
+
+
+// === KODE LAMA (TIDAK BERUBAH) ===
+
 // === UNTUK GURU / ADMIN ===
 
 // --- FUNGSI BARU UNTUK BANK SOAL ---
 exports.getAllQuestionsForBank = async (req, res) => {
-    // Ambil jenjang & kelas dari user yang login, bukan dari query params
-    // Middleware authJwt harus sudah menambahkan req.user
-    // Untuk sementara, kita asumsikan guru hanya bisa akses jenjangnya sendiri
-    // Kita akan butuh data ini dari token atau session di masa depan
-    const { jenjang, kelas } = req.query; // Sementara pakai query
+    const { jenjang, kelas } = req.query; 
 
     if (!jenjang) {
         return res.status(400).send({ message: "Query 'jenjang' dibutuhkan." });
     }
-    // Kelas tidak wajib, karena TK tidak punya kelas
     
     try {
         const data = await Materi.getAllQuestionsForBank(jenjang, kelas);
@@ -44,11 +66,8 @@ exports.getMateriForAdmin = async (req, res) => {
 exports.getDetailMateriForAdmin = async (req, res) => {
     const { materiKey } = req.params;
     try {
-        // Ambil judul chapter
         const chapter = await Materi.findChapterByMateriKey(materiKey);
-        // Ambil soal-soal
         const questions = await Materi.getQuestionsByChapterKey(materiKey);
-        // Gabungkan
         res.status(200).json({ 
             judul: chapter ? chapter.judul : "Tidak Ditemukan",
             questions 
