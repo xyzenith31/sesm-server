@@ -1,41 +1,45 @@
 // contoh-server-sesm/controllers/quiz.controller.js
 const Quiz = require("../models/quiz.model.js");
 
-// --- ▼▼▼ FUNGSI BARU UNTUK EDIT SOAL ▼▼▼ ---
+// === FUNGSI EDIT SOAL (DIPERBAIKI) ===
 exports.updateQuestion = async (req, res) => {
     const { questionId } = req.params;
-    const { question_text, question_type, options, links } = req.body;
+    // Ambil semua data dari body, termasuk 'links' dan 'essayAnswer'
+    const { question_text, question_type, options, existingMedia, links, essayAnswer } = req.body;
 
     if (!question_text || !question_type) {
         return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
     }
 
     try {
-        // Logika untuk menangani lampiran (jika ada file baru diupload)
-        // Untuk saat ini, kita asumsikan media yang sudah ada tidak diubah, hanya teks dan opsi
+        // 1. Inisialisasi array untuk semua lampiran
         const media_attachments = [];
+
+        // 2. Proses file baru yang di-upload
         if (req.files) {
             req.files.forEach(file => {
                 media_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") });
             });
         }
+        
+        // 3. Proses lampiran yang sudah ada (termasuk link lama)
+        if (existingMedia) {
+             const parsedExistingMedia = JSON.parse(existingMedia);
+             media_attachments.push(...parsedExistingMedia);
+        }
+
+        // 4. Proses link baru yang ditambahkan
         if (links) {
             JSON.parse(links).forEach(link => {
                 media_attachments.push({ type: 'link', url: link });
             });
-        }
-        
-        // Ambil media lama jika tidak ada file baru yang diupload
-        if (media_attachments.length === 0 && req.body.existingMedia) {
-             const existingMedia = JSON.parse(req.body.existingMedia);
-             media_attachments.push(...existingMedia);
         }
 
         let parsedOptions;
         if (question_type.includes('pilihan-ganda')) {
             parsedOptions = JSON.parse(options);
             if (!parsedOptions || !parsedOptions.some(o => o.isCorrect)) {
-                return res.status(400).send({ message: "Harus ada setidaknya satu jawaban benar." });
+                return res.status(400).send({ message: "Harus ada setidaknya satu jawaban benar untuk pilihan ganda." });
             }
         }
         
@@ -43,6 +47,7 @@ exports.updateQuestion = async (req, res) => {
             question_text,
             question_type,
             options: parsedOptions,
+            essayAnswer: essayAnswer || null, // Tambahkan kunci jawaban esai
             media_attachments: media_attachments,
         };
 
@@ -55,8 +60,57 @@ exports.updateQuestion = async (req, res) => {
     }
 };
 
-// --- Sisa file tetap sama, tidak perlu diubah ---
 
+// === FUNGSI TAMBAH SOAL (DIPERBAIKI) ===
+exports.addQuestionToQuiz = async (req, res) => {
+    const { quizId } = req.params;
+    // Ambil 'essayAnswer' dari body
+    const { question_text, question_type, options, links, essayAnswer } = req.body;
+
+    if (!question_text || !question_type) {
+        return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
+    }
+    
+    try {
+        const media_attachments = [];
+
+        if (req.files) { 
+            req.files.forEach(file => { 
+                media_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") }); 
+            }); 
+        }
+        if (links) { 
+            JSON.parse(links).forEach(link => { 
+                media_attachments.push({ type: 'link', url: link }); 
+            }); 
+        }
+
+        let parsedOptions;
+        if (question_type.includes('pilihan-ganda')) {
+            parsedOptions = JSON.parse(options);
+            if (!parsedOptions || parsedOptions.length < 2 || !parsedOptions.some(o => o.isCorrect)) {
+                return res.status(400).send({ message: "Pilihan ganda harus memiliki minimal 2 opsi dan satu jawaban benar." });
+            }
+        }
+        
+        const questionData = { 
+            question_text, 
+            question_type, 
+            options: parsedOptions, 
+            essayAnswer: essayAnswer || null, // Tambahkan kunci jawaban esai
+            media_attachments: media_attachments,
+        };
+
+        const newQuestion = await Quiz.addQuestion(quizId, questionData);
+        res.status(201).send({ message: "Soal berhasil ditambahkan.", data: newQuestion });
+    } catch (error) {
+        console.error("Add Question Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan internal saat menambah soal." });
+    }
+};
+
+
+// --- Sisa file tetap sama (tidak perlu diubah) ---
 exports.createQuiz = async (req, res) => {
     try {
         const { title, description, recommended_level } = req.body;
@@ -68,28 +122,6 @@ exports.createQuiz = async (req, res) => {
     } catch (error) {
         console.error("ERROR SAAT CREATE QUIZ:", error);
         res.status(500).send({ message: "Terjadi kesalahan internal saat membuat kuis." });
-    }
-};
-
-exports.addQuestionToQuiz = async (req, res) => {
-    const { quizId } = req.params;
-    const { question_text, question_type, options, links } = req.body;
-    if (!question_text || !question_type) return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
-    try {
-        const media_attachments = [];
-        if (req.files) { req.files.forEach(file => { media_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") }); }); }
-        if (links) { JSON.parse(links).forEach(link => { media_attachments.push({ type: 'link', url: link }); }); }
-        let parsedOptions;
-        if (question_type.includes('pilihan-ganda')) {
-            parsedOptions = JSON.parse(options);
-            if (!parsedOptions || parsedOptions.length < 2 || !parsedOptions.some(o => o.isCorrect)) return res.status(400).send({ message: "Pilihan ganda harus memiliki minimal 2 opsi dan satu jawaban benar." });
-        }
-        const questionData = { question_text, question_type, options: parsedOptions, media_attachments: media_attachments, };
-        const newQuestion = await Quiz.addQuestion(quizId, questionData);
-        res.status(201).send({ message: "Soal berhasil ditambahkan.", data: newQuestion });
-    } catch (error) {
-        console.error("Add Question Error:", error);
-        res.status(500).send({ message: "Terjadi kesalahan internal saat menambah soal." });
     }
 };
 

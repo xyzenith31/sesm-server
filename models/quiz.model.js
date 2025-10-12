@@ -17,24 +17,23 @@ const deleteFile = (url) => {
     }
 };
 
-// --- ▼▼▼ FUNGSI BARU UNTUK EDIT SOAL ▼▼▼ ---
+// === FUNGSI EDIT SOAL (DIPERBAIKI) ===
 Quiz.updateQuestion = async (questionId, data) => {
+    // Controller sudah menyatukan semua lampiran (file, link) ke dalam media_attachments
     const { question_text, question_type, options, media_attachments } = data;
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
 
-        // 1. Update tabel quiz_questions
+        // 1. Update tabel quiz_questions dengan data JSON yang sudah diformat
         await conn.execute(
             "UPDATE quiz_questions SET question_text = ?, question_type = ?, media_attachments = ? WHERE id = ?",
-            [question_text, question_type, JSON.stringify(media_attachments), questionId]
+            [question_text, question_type, JSON.stringify(media_attachments || []), questionId]
         );
 
         // 2. Jika pilihan ganda, hapus opsi lama dan masukkan yang baru
         if (question_type.includes('pilihan-ganda') && options) {
-            // Hapus opsi lama
             await conn.execute("DELETE FROM quiz_question_options WHERE question_id = ?", [questionId]);
-            // Masukkan opsi baru
             for (const opt of options) {
                 await conn.execute(
                     "INSERT INTO quiz_question_options (question_id, option_text, is_correct) VALUES (?, ?, ?)",
@@ -53,14 +52,16 @@ Quiz.updateQuestion = async (questionId, data) => {
     }
 };
 
+// === FUNGSI TAMBAH SOAL (DIPERBAIKI) ===
 Quiz.addQuestion = async (quizId, data) => {
+    // Controller sudah menyatukan semua lampiran (file, link) ke dalam media_attachments
     const { question_text, question_type, options, media_attachments } = data;
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
         const [qResult] = await conn.execute(
             "INSERT INTO quiz_questions (quiz_id, question_text, question_type, media_attachments) VALUES (?, ?, ?, ?)",
-            [quizId, question_text, question_type, JSON.stringify(media_attachments)]
+            [quizId, question_text, question_type, JSON.stringify(media_attachments || [])]
         );
         const questionId = qResult.insertId;
         if (question_type.includes('pilihan-ganda') && options) {
@@ -80,6 +81,9 @@ Quiz.addQuestion = async (quizId, data) => {
     }
 };
 
+// ... (Sisa kode di file ini tetap sama, tidak perlu diubah)
+
+// --- Sisa file tetap sama ---
 Quiz.addQuestionsFromBank = async (quizId, questionIds) => {
     if (!questionIds || questionIds.length === 0) return 0;
     const conn = await db.getConnection();
