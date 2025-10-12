@@ -7,28 +7,25 @@ const Materi = {};
 
 // --- FUNGSI EDIT SOAL (DIPERBAIKI) ---
 Materi.updateQuestion = async (questionId, questionData) => {
-    const { type, question, options, correctAnswer, essayAnswer, new_media_urls, attachments } = questionData;
+    // Controller sudah menyatukan semua media ke dalam 'media_urls'
+    const { type, question, options, correctAnswer, essayAnswer, media_urls } = questionData;
     const conn = await db.getConnection();
 
     try {
         await conn.beginTransaction();
         
-        // Gabungkan lampiran yang sudah ada (dari frontend) dengan file yang baru diupload
-        const allMedia = [...(attachments || []), ...(new_media_urls || [])];
-        const mediaUrlsJson = JSON.stringify(allMedia);
+        // Ubah array media menjadi string JSON untuk disimpan
+        const mediaUrlsJson = JSON.stringify(media_urls || []);
 
-        // Update tabel 'questions'
+        // Update tabel 'questions' dengan JSON yang baru
         await conn.execute(
             "UPDATE questions SET pertanyaan = ?, tipe_soal = ?, jawaban_esai = ?, media_urls = ? WHERE id = ?",
             [question, type, essayAnswer || null, mediaUrlsJson, questionId]
         );
 
-        // Jika soal pilihan ganda, hapus opsi lama dan masukkan yang baru
         if (type.startsWith('pilihan-ganda') && options) {
             await conn.execute("DELETE FROM question_options WHERE question_id = ?", [questionId]);
             for (const opt of options) {
-                // --- INI BAGIAN YANG DIPERBAIKI ---
-                // Menggunakan 'conn.execute' agar tetap dalam transaksi yang sama
                 await conn.execute(
                     "INSERT INTO question_options (opsi_jawaban, is_correct, question_id) VALUES (?, ?, ?)",
                     [opt, opt === correctAnswer, questionId]
@@ -47,9 +44,9 @@ Materi.updateQuestion = async (questionId, questionData) => {
 };
 
 
-// --- KODE LAMA DI BAWAH INI TIDAK BERUBAH ---
+// ... (Sisa kode di file ini tetap sama, tidak perlu diubah)
 
-// --- FUNGSI BARU UNTUK BANK SOAL ---
+// --- KODE LAMA DI BAWAH INI TIDAK BERUBAH ---
 Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
     let query = `
         SELECT 
@@ -64,16 +61,13 @@ Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
         WHERE s.jenjang = ?
     `;
     const params = [jenjang];
-
     if (jenjang.toUpperCase() === 'SD' && kelas) {
         query += " AND s.kelas = ?";
         params.push(kelas);
     } else if (jenjang.toUpperCase() === 'TK') {
         query += " AND s.kelas IS NULL";
     }
-
     query += " ORDER BY s.nama_mapel, c.judul, q.id";
-
     const [rows] = await db.execute(query, params);
     return rows;
 };
@@ -184,9 +178,7 @@ Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel) => {
 
 Materi.createChapter = async (judul, subjectId) => {
     const [subjects] = await db.execute("SELECT jenjang, kelas, nama_mapel FROM subjects WHERE id = ?", [subjectId]);
-    if (subjects.length === 0) {
-        throw new Error("Subject ID tidak ditemukan.");
-    }
+    if (subjects.length === 0) throw new Error("Subject ID tidak ditemukan.");
     const { jenjang, kelas, nama_mapel } = subjects[0];
     const materiKey = `${jenjang.toLowerCase()}-${kelas || 'tk'}-${nama_mapel.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
     const [result] = await db.execute(
