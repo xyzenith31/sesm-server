@@ -1,24 +1,33 @@
 // contoh-server-sesm/controllers/materi.controller.js
 const Materi = require("../models/materi.model.js");
 
-// === FUNGSI BARU UNTUK EDIT SOAL ===
+// === FUNGSI EDIT SOAL (DIPERBAIKI TOTAL) ===
 exports.updateQuestion = async (req, res) => {
     const { questionId } = req.params;
     try {
         const mediaFiles = req.files;
-        // Buat URL yang bisa diakses dari file yang diupload
-        const new_media_urls = mediaFiles ? mediaFiles.map(file => file.path.replace(/\\/g, "/")) : [];
+
+        // **PERBAIKAN UTAMA: Ubah file baru menjadi format objek {type, url}**
+        const new_media_objects = mediaFiles 
+            ? mediaFiles.map(file => ({ type: 'file', url: file.path.replace(/\\/g, "/") })) 
+            : [];
+
+        // Ambil lampiran yang sudah ada dari body (jika dikirim)
+        const existing_attachments = req.body.attachments ? JSON.parse(req.body.attachments) : [];
+
+        // Gabungkan media yang sudah ada dengan media yang baru diupload
+        const all_media = [...existing_attachments, ...new_media_objects];
 
         const questionData = {
             ...req.body,
-            // Pastikan options di-parse dari string JSON
             options: req.body.options ? JSON.parse(req.body.options) : [],
-            // Gabungkan media baru jika ada
-            media_urls: new_media_urls
+            // Gunakan array media yang sudah digabung dan diformat dengan benar
+            attachments: all_media 
         };
 
         const updatedQuestion = await Materi.updateQuestion(questionId, questionData);
         res.status(200).json({ message: "Soal berhasil diperbarui.", data: updatedQuestion });
+
     } catch (error) {
         console.error("Update Question Error:", error);
         res.status(500).send({ message: error.message });
@@ -27,8 +36,6 @@ exports.updateQuestion = async (req, res) => {
 
 
 // === KODE LAMA (TIDAK BERUBAH) ===
-
-// === UNTUK GURU / ADMIN ===
 
 // --- FUNGSI BARU UNTUK BANK SOAL ---
 exports.getAllQuestionsForBank = async (req, res) => {
@@ -94,7 +101,18 @@ exports.addQuestion = async (req, res) => {
     const { materiKey } = req.params;
     try {
         const mediaFiles = req.files;
-        const media_urls = mediaFiles ? mediaFiles.map(file => file.path.replace(/\\/g, "/")) : [];
+        const media_urls = mediaFiles ? mediaFiles.map(file => ({ type: 'file', url: file.path.replace(/\\/g, "/") })) : [];
+        
+        // Menambahkan links dan texts dari body jika ada
+        if (req.body.links) {
+            const links = JSON.parse(req.body.links);
+            links.forEach(link => media_urls.push({ type: 'link', url: link.url }));
+        }
+        if (req.body.texts) {
+            const texts = JSON.parse(req.body.texts);
+            texts.forEach(text => media_urls.push({ type: 'text', content: text.content }));
+        }
+
         const questionData = {
             ...req.body,
             options: req.body.options ? JSON.parse(req.body.options) : [],
@@ -107,6 +125,7 @@ exports.addQuestion = async (req, res) => {
         res.status(500).send({ message: error.message });
     }
 };
+
 
 exports.deleteChapter = async (req, res) => {
     const { materiKey } = req.params;
