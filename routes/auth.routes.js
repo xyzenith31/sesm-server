@@ -19,4 +19,7 @@ module.exports = function(app) {
   app.post("/api/auth/verify-code", controller.verifyCode);
   app.post("/api/auth/reset-password", controller.resetPassword);
   app.post("/api/auth/resend-code", controller.resendCode);
+
+  // --- RUTE BARU ---
+  app.post("/api/auth/login-with-code", controller.loginWithCode);
 };

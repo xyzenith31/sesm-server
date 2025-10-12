@@ -69,30 +69,37 @@ User.updateProfile = async (userId, data) => {
 };
 
 
-// --- FUNGSI UNTUK FORGOT PASSWORD ---
+// --- FUNGSI UNTUK FORGOT PASSWORD (DIPERBARUI) ---
 
-User.saveResetToken = async (userId, token, expires) => {
+// Menyimpan HASH dari token, bukan token aslinya
+User.saveResetToken = async (userId, hashedToken, expires) => {
     const [result] = await db.execute(
         "UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?",
-        [token, expires, userId]
+        [hashedToken, expires, userId]
     );
     return result.affectedRows;
 };
 
-User.findUserByResetToken = async (token) => {
-    const [rows] = await db.execute(
-        "SELECT * FROM users WHERE reset_token = ? AND reset_token_expires > NOW()",
-        [token]
-    );
-    return rows[0];
-};
+// Fungsi ini tidak lagi aman dan tidak digunakan, digantikan dengan pencarian via email/username
+// User.findUserByResetToken = async (token) => { ... }
 
-User.resetPassword = async (userId, hashedPassword) => {
+// Mengubah password dan membersihkan token
+User.updatePasswordAndClearToken = async (userId, hashedPassword) => {
     const [result] = await db.execute(
         "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
         [hashedPassword, userId]
     );
     return result.affectedRows;
 };
+
+// Fungsi baru untuk membersihkan token tanpa mengubah password
+User.clearResetToken = async (userId) => {
+    const [result] = await db.execute(
+        "UPDATE users SET reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
+        [userId]
+    );
+    return result.affectedRows;
+};
+
 
 module.exports = User;
