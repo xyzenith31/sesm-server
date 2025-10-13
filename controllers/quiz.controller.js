@@ -1,10 +1,10 @@
 // contoh-server-sesm/controllers/quiz.controller.js
 const Quiz = require("../models/quiz.model.js");
+const Point = require("../models/point.model.js"); // Impor model Point
 
-// === FUNGSI EDIT SOAL (DIPERBAIKI) ===
+// === FUNGSI EDIT SOAL ===
 exports.updateQuestion = async (req, res) => {
     const { questionId } = req.params;
-    // Ambil semua data dari body, termasuk 'links' dan 'essayAnswer'
     const { question_text, question_type, options, existingMedia, links, essayAnswer } = req.body;
 
     if (!question_text || !question_type) {
@@ -12,23 +12,16 @@ exports.updateQuestion = async (req, res) => {
     }
 
     try {
-        // 1. Inisialisasi array untuk semua lampiran
         const media_attachments = [];
-
-        // 2. Proses file baru yang di-upload
         if (req.files) {
             req.files.forEach(file => {
                 media_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") });
             });
         }
-        
-        // 3. Proses lampiran yang sudah ada (termasuk link lama)
         if (existingMedia) {
              const parsedExistingMedia = JSON.parse(existingMedia);
              media_attachments.push(...parsedExistingMedia);
         }
-
-        // 4. Proses link baru yang ditambahkan
         if (links) {
             JSON.parse(links).forEach(link => {
                 media_attachments.push({ type: 'link', url: link });
@@ -47,7 +40,7 @@ exports.updateQuestion = async (req, res) => {
             question_text,
             question_type,
             options: parsedOptions,
-            essayAnswer: essayAnswer || null, // Tambahkan kunci jawaban esai
+            essayAnswer: essayAnswer || null,
             media_attachments: media_attachments,
         };
 
@@ -61,10 +54,9 @@ exports.updateQuestion = async (req, res) => {
 };
 
 
-// === FUNGSI TAMBAH SOAL (DIPERBAIKI) ===
+// === FUNGSI TAMBAH SOAL ===
 exports.addQuestionToQuiz = async (req, res) => {
     const { quizId } = req.params;
-    // Ambil 'essayAnswer' dari body
     const { question_text, question_type, options, links, essayAnswer } = req.body;
 
     if (!question_text || !question_type) {
@@ -97,7 +89,7 @@ exports.addQuestionToQuiz = async (req, res) => {
             question_text, 
             question_type, 
             options: parsedOptions, 
-            essayAnswer: essayAnswer || null, // Tambahkan kunci jawaban esai
+            essayAnswer: essayAnswer || null,
             media_attachments: media_attachments,
         };
 
@@ -109,6 +101,38 @@ exports.addQuestionToQuiz = async (req, res) => {
     }
 };
 
+
+// === FUNGSI SUBMIT KUIS DENGAN PENAMBAHAN POIN ===
+exports.submitQuiz = async (req, res) => {
+    const userId = req.userId;
+    const { quizId } = req.params;
+    const { answers } = req.body;
+    if (!answers || !Array.isArray(answers)) return res.status(400).send({ message: "Format jawaban tidak valid." });
+    try {
+        // 1. Proses submit kuis seperti biasa
+        const result = await Quiz.submit(userId, quizId, answers);
+
+        // 2. Tambahkan poin setelah kuis berhasil disubmit
+        const pointsToAdd = 250; // Anda bisa membuat ini dinamis nanti
+        const quizInfo = await Quiz.findById(quizId); // Ambil info kuis
+        
+        await Point.addPoints(
+            userId, 
+            pointsToAdd, 
+            'QUIZ_COMPLETION', 
+            `Menyelesaikan kuis: ${quizInfo ? quizInfo.title : `ID ${quizId}`}`
+        );
+
+        // 3. Kirim response ke user
+        res.status(200).send({ 
+            message: `Kuis berhasil dikumpulkan dan Anda mendapatkan ${pointsToAdd} poin!`, 
+            ...result 
+        });
+
+    } catch (error) { 
+        res.status(500).send({ message: "Gagal memproses jawaban: " + error.message }); 
+    }
+};
 
 // --- Sisa file tetap sama (tidak perlu diubah) ---
 exports.createQuiz = async (req, res) => {
@@ -173,17 +197,6 @@ exports.getQuizForStudent = async (req, res) => {
         const questions = await Quiz.getQuestionsForQuiz(req.params.quizId);
         res.status(200).json(questions);
     } catch (error) { res.status(500).send({ message: error.message }); }
-};
-
-exports.submitQuiz = async (req, res) => {
-    const userId = req.userId;
-    const { quizId } = req.params;
-    const { answers } = req.body;
-    if (!answers || !Array.isArray(answers)) return res.status(400).send({ message: "Format jawaban tidak valid." });
-    try {
-        const result = await Quiz.submit(userId, quizId, answers);
-        res.status(200).send({ message: "Kuis berhasil dikumpulkan!", ...result });
-    } catch (error) { res.status(500).send({ message: "Gagal memproses jawaban: " + error.message }); }
 };
 
 exports.getSubmissionsForQuiz = async (req, res) => {

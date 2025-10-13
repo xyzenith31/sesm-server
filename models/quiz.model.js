@@ -17,21 +17,24 @@ const deleteFile = (url) => {
     }
 };
 
-// === FUNGSI EDIT SOAL (DIPERBAIKI) ===
+// Fungsi untuk mendapatkan detail kuis berdasarkan ID
+Quiz.findById = async (quizId) => {
+    const [rows] = await db.execute("SELECT title FROM quizzes WHERE id = ?", [quizId]);
+    return rows[0];
+};
+
+// === FUNGSI EDIT SOAL ===
 Quiz.updateQuestion = async (questionId, data) => {
-    // Controller sudah menyatukan semua lampiran (file, link) ke dalam media_attachments
-    const { question_text, question_type, options, media_attachments } = data;
+    const { question_text, question_type, options, media_attachments, essayAnswer } = data;
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
 
-        // 1. Update tabel quiz_questions dengan data JSON yang sudah diformat
         await conn.execute(
-            "UPDATE quiz_questions SET question_text = ?, question_type = ?, media_attachments = ? WHERE id = ?",
-            [question_text, question_type, JSON.stringify(media_attachments || []), questionId]
+            "UPDATE quiz_questions SET question_text = ?, question_type = ?, media_attachments = ?, correct_essay_answer = ? WHERE id = ?",
+            [question_text, question_type, JSON.stringify(media_attachments || []), essayAnswer || null, questionId]
         );
 
-        // 2. Jika pilihan ganda, hapus opsi lama dan masukkan yang baru
         if (question_type.includes('pilihan-ganda') && options) {
             await conn.execute("DELETE FROM quiz_question_options WHERE question_id = ?", [questionId]);
             for (const opt of options) {
@@ -52,16 +55,15 @@ Quiz.updateQuestion = async (questionId, data) => {
     }
 };
 
-// === FUNGSI TAMBAH SOAL (DIPERBAIKI) ===
+// === FUNGSI TAMBAH SOAL ===
 Quiz.addQuestion = async (quizId, data) => {
-    // Controller sudah menyatukan semua lampiran (file, link) ke dalam media_attachments
-    const { question_text, question_type, options, media_attachments } = data;
+    const { question_text, question_type, options, media_attachments, essayAnswer } = data;
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
         const [qResult] = await conn.execute(
-            "INSERT INTO quiz_questions (quiz_id, question_text, question_type, media_attachments) VALUES (?, ?, ?, ?)",
-            [quizId, question_text, question_type, JSON.stringify(media_attachments || [])]
+            "INSERT INTO quiz_questions (quiz_id, question_text, question_type, media_attachments, correct_essay_answer) VALUES (?, ?, ?, ?, ?)",
+            [quizId, question_text, question_type, JSON.stringify(media_attachments || []), essayAnswer || null]
         );
         const questionId = qResult.insertId;
         if (question_type.includes('pilihan-ganda') && options) {
@@ -81,9 +83,6 @@ Quiz.addQuestion = async (quizId, data) => {
     }
 };
 
-// ... (Sisa kode di file ini tetap sama, tidak perlu diubah)
-
-// --- Sisa file tetap sama ---
 Quiz.addQuestionsFromBank = async (quizId, questionIds) => {
     if (!questionIds || questionIds.length === 0) return 0;
     const conn = await db.getConnection();
@@ -162,7 +161,7 @@ Quiz.getQuestionsForQuiz = async (quizId) => {
 Quiz.getQuestionsForAdmin = async (quizId) => {
     const id = parseInt(quizId, 10);
     if (isNaN(id)) return [];
-    const [questions] = await db.execute("SELECT id, question_text, question_type, media_attachments FROM quiz_questions WHERE quiz_id = ?", [id]);
+    const [questions] = await db.execute("SELECT id, question_text, question_type, correct_essay_answer, media_attachments FROM quiz_questions WHERE quiz_id = ?", [id]);
     for (const q of questions) {
         q.media_attachments = q.media_attachments ? JSON.parse(q.media_attachments) : [];
         if (q.question_type.includes('pilihan-ganda')) {

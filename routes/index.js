@@ -1,9 +1,11 @@
+// contoh-sesm-server/routes/index.js
 const authRoutes = require('./auth.routes.js');
 const subjectRoutes = require('./subject.routes.js');
 const userRoutes = require('./user.routes.js');
 const materiRoutes = require('./materi.routes.js');
 const nilaiRoutes = require('./nilai.routes.js');
-const quizRoutes = require('./quiz.routes.js'); // <-- 1. Impor rute baru
+const quizRoutes = require('./quiz.routes.js');
+const pointRoutes = require('./point.routes.js'); // <-- 1. Impor rute poin
 
 module.exports = function(app) {
   authRoutes(app);
@@ -11,5 +13,6 @@ module.exports = function(app) {
   userRoutes(app);
   materiRoutes(app);
   nilaiRoutes(app);
-  quizRoutes(app); // <-- 2. Daftarkan rute baru
+  quizRoutes(app);
+  pointRoutes(app); // <-- 2. Daftarkan rute poin
 };

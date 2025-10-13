@@ -26,27 +26,17 @@ User.findByUsernameOrEmail = async (identifier) => {
 };
 
 User.updateById = async (userId, data) => {
-  const { nama, username, umur, password } = data;
+  // Tambahkan 'avatar' ke daftar field yang bisa di-update
+  const { nama, username, umur, password, avatar } = data;
 
   const fields = [];
   const values = [];
 
-  if (nama !== undefined) {
-    fields.push("nama = ?");
-    values.push(nama);
-  }
-  if (username !== undefined) {
-    fields.push("username = ?");
-    values.push(username);
-  }
-  if (umur !== undefined) {
-    fields.push("umur = ?");
-    values.push(umur);
-  }
-  if (password) {
-    fields.push("password = ?");
-    values.push(bcrypt.hashSync(password, 8));
-  }
+  if (nama !== undefined) { fields.push("nama = ?"); values.push(nama); }
+  if (username !== undefined) { fields.push("username = ?"); values.push(username); }
+  if (umur !== undefined) { fields.push("umur = ?"); values.push(umur); }
+  if (avatar !== undefined) { fields.push("avatar = ?"); values.push(avatar); } // <-- Tambahkan ini
+  if (password) { fields.push("password = ?"); values.push(bcrypt.hashSync(password, 8)); }
 
   if (fields.length === 0) {
     return { affectedRows: 0 };
@@ -68,10 +58,6 @@ User.updateProfile = async (userId, data) => {
   return result;
 };
 
-
-// --- FUNGSI UNTUK FORGOT PASSWORD (DIPERBARUI) ---
-
-// Menyimpan HASH dari token, bukan token aslinya
 User.saveResetToken = async (userId, hashedToken, expires) => {
     const [result] = await db.execute(
         "UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?",
@@ -80,10 +66,6 @@ User.saveResetToken = async (userId, hashedToken, expires) => {
     return result.affectedRows;
 };
 
-// Fungsi ini tidak lagi aman dan tidak digunakan, digantikan dengan pencarian via email/username
-// User.findUserByResetToken = async (token) => { ... }
-
-// Mengubah password dan membersihkan token
 User.updatePasswordAndClearToken = async (userId, hashedPassword) => {
     const [result] = await db.execute(
         "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
@@ -92,7 +74,6 @@ User.updatePasswordAndClearToken = async (userId, hashedPassword) => {
     return result.affectedRows;
 };
 
-// Fungsi baru untuk membersihkan token tanpa mengubah password
 User.clearResetToken = async (userId) => {
     const [result] = await db.execute(
         "UPDATE users SET reset_token = NULL, reset_token_expires = NULL WHERE id = ?",
@@ -101,5 +82,16 @@ User.clearResetToken = async (userId) => {
     return result.affectedRows;
 };
 
+User.getLeaderboard = async () => {
+    const query = `
+        SELECT id, nama, username, points, avatar 
+        FROM users 
+        WHERE role = 'siswa'
+        ORDER BY points DESC 
+        LIMIT 10
+    `;
+    const [rows] = await db.execute(query);
+    return rows;
+};
 
 module.exports = User;
