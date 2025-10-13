@@ -5,34 +5,126 @@ const path = require('path');
 
 const Materi = {};
 
-// --- FUNGSI EDIT SOAL (DIPERBAIKI) ---
+// --- FUNGSI BARU UNTUK UPDATE PENGATURAN ---
+Materi.updateChapterSettings = async (chapterId, settings) => {
+    const fields = [];
+    const values = [];
+
+    // Membuat query dinamis berdasarkan data yang dikirim
+    const validSettings = [
+        'setting_penalty_on_wrong',
+        'setting_randomize_questions',
+        'setting_show_correct_answers',
+        'setting_time_limit_minutes',
+        'setting_require_all_answers',
+        'setting_strict_zero_on_wrong', // Fitur baru
+        'setting_fail_on_any_wrong'     // Fitur baru
+    ];
+
+    for (const key in settings) {
+        if (validSettings.includes(key)) {
+            fields.push(`${key} = ?`);
+            // Pastikan null dikirim jika string kosong untuk batas waktu
+            if (key === 'setting_time_limit_minutes' && (settings[key] === '' || settings[key] === null)) {
+                values.push(null);
+            } else {
+                values.push(settings[key]);
+            }
+        }
+    }
+
+    if (fields.length === 0) {
+        return { affectedRows: 0 };
+    }
+
+    const query = `UPDATE chapters SET ${fields.join(", ")} WHERE id = ?`;
+    values.push(chapterId);
+
+    const [result] = await db.execute(query, values);
+    return result;
+};
+
+
+// --- FUNGSI LAMA YANG DIPERBARUI UNTUK MEMUAT DATA PENGATURAN ---
+Materi.getAdminDashboardData = async (jenjang, kelas) => {
+    let query = `
+        SELECT 
+            s.id as subject_id,
+            s.nama_mapel, 
+            c.id as chapter_id, 
+            c.judul as chapter_judul,
+            c.materiKey,
+            c.grading_mode,
+            c.setting_penalty_on_wrong,
+            c.setting_randomize_questions,
+            c.setting_show_correct_answers,
+            c.setting_time_limit_minutes,
+            c.setting_require_all_answers,
+            c.setting_strict_zero_on_wrong,
+            c.setting_fail_on_any_wrong,
+            (SELECT COUNT(*) FROM questions q WHERE q.chapter_id = c.id) as jumlah_soal
+        FROM subjects s
+        LEFT JOIN chapters c ON s.id = c.subject_id
+        WHERE s.jenjang = ?
+    `;
+    const params = [jenjang];
+    if (jenjang.toUpperCase() === 'SD' && kelas) {
+        query += " AND s.kelas = ?";
+        params.push(kelas);
+    } else if (jenjang.toUpperCase() === 'TK') {
+        query += " AND s.kelas IS NULL";
+    }
+     query += " ORDER BY s.nama_mapel, c.judul";
+    const [rows] = await db.execute(query, params);
+    
+    const result = {};
+    rows.forEach(row => {
+        if (!row.nama_mapel) return;
+        if (!result[row.nama_mapel]) {
+            result[row.nama_mapel] = {
+                subject_id: row.subject_id,
+                chapters: []
+            };
+        }
+        if (row.chapter_id) {
+            result[row.nama_mapel].chapters.push({
+                chapter_id: row.chapter_id,
+                judul: row.chapter_judul,
+                materiKey: row.materiKey,
+                grading_mode: row.grading_mode,
+                questionCount: row.jumlah_soal,
+                // Tambahkan data settings ke response
+                settings: {
+                    setting_penalty_on_wrong: !!row.setting_penalty_on_wrong,
+                    setting_randomize_questions: !!row.setting_randomize_questions,
+                    setting_show_correct_answers: !!row.setting_show_correct_answers,
+                    setting_time_limit_minutes: row.setting_time_limit_minutes,
+                    setting_require_all_answers: !!row.setting_require_all_answers,
+                    setting_strict_zero_on_wrong: !!row.setting_strict_zero_on_wrong,
+                    setting_fail_on_any_wrong: !!row.setting_fail_on_any_wrong,
+                }
+            });
+        }
+    });
+    return result;
+};
+
 Materi.updateQuestion = async (questionId, questionData) => {
-    // Controller sudah menyatukan semua media ke dalam 'media_urls'
     const { type, question, options, correctAnswer, essayAnswer, media_urls } = questionData;
     const conn = await db.getConnection();
-
     try {
         await conn.beginTransaction();
-        
-        // Ubah array media menjadi string JSON untuk disimpan
         const mediaUrlsJson = JSON.stringify(media_urls || []);
-
-        // Update tabel 'questions' dengan JSON yang baru
         await conn.execute(
             "UPDATE questions SET pertanyaan = ?, tipe_soal = ?, jawaban_esai = ?, media_urls = ? WHERE id = ?",
             [question, type, essayAnswer || null, mediaUrlsJson, questionId]
         );
-
         if (type.startsWith('pilihan-ganda') && options) {
             await conn.execute("DELETE FROM question_options WHERE question_id = ?", [questionId]);
             for (const opt of options) {
-                await conn.execute(
-                    "INSERT INTO question_options (opsi_jawaban, is_correct, question_id) VALUES (?, ?, ?)",
-                    [opt, opt === correctAnswer, questionId]
-                );
+                await conn.execute("INSERT INTO question_options (opsi_jawaban, is_correct, question_id) VALUES (?, ?, ?)", [opt, opt === correctAnswer, questionId]);
             }
         }
-
         await conn.commit();
         return { id: questionId, ...questionData };
     } catch (error) {
@@ -43,10 +135,6 @@ Materi.updateQuestion = async (questionId, questionData) => {
     }
 };
 
-
-// ... (Sisa kode di file ini tetap sama, tidak perlu diubah)
-
-// --- KODE LAMA DI BAWAH INI TIDAK BERUBAH ---
 Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
     let query = `
         SELECT 
@@ -73,58 +161,13 @@ Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
 };
 
 Materi.findChapterByMateriKey = async (materiKey) => {
-    const [rows] = await db.execute("SELECT id, grading_mode FROM chapters WHERE materiKey = ?", [materiKey]);
+    const [rows] = await db.execute("SELECT *, id as chapter_id FROM chapters WHERE materiKey = ?", [materiKey]);
     return rows[0];
 };
 
 Materi.checkQuestionExists = async (questionId) => {
     const [rows] = await db.execute("SELECT id FROM questions WHERE id = ?", [questionId]);
     return rows.length > 0;
-};
-
-Materi.getAdminDashboardData = async (jenjang, kelas) => {
-    let query = `
-        SELECT 
-            s.id as subject_id,
-            s.nama_mapel, 
-            c.id as chapter_id, 
-            c.judul as chapter_judul,
-            c.materiKey,
-            c.grading_mode, 
-            (SELECT COUNT(*) FROM questions q WHERE q.chapter_id = c.id) as jumlah_soal
-        FROM subjects s
-        LEFT JOIN chapters c ON s.id = c.subject_id
-        WHERE s.jenjang = ?
-    `;
-    const params = [jenjang];
-    if (jenjang.toUpperCase() === 'SD' && kelas) {
-        query += " AND s.kelas = ?";
-        params.push(kelas);
-    } else if (jenjang.toUpperCase() === 'TK') {
-        query += " AND s.kelas IS NULL";
-    }
-     query += " ORDER BY s.nama_mapel, c.judul";
-    const [rows] = await db.execute(query, params);
-    const result = {};
-    rows.forEach(row => {
-        if (!row.nama_mapel) return;
-        if (!result[row.nama_mapel]) {
-            result[row.nama_mapel] = {
-                subject_id: row.subject_id,
-                chapters: []
-            };
-        }
-        if (row.chapter_id) {
-            result[row.nama_mapel].chapters.push({
-                chapter_id: row.chapter_id,
-                judul: row.chapter_judul,
-                materiKey: row.materiKey,
-                grading_mode: row.grading_mode,
-                questionCount: row.jumlah_soal
-            });
-        }
-    });
-    return result;
 };
 
 Materi.getQuestionsByChapterKey = async (materiKey) => {
@@ -137,11 +180,7 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
     const [questions] = await db.execute(query, [materiKey]);
     for (const q of questions) {
         if (q.media_urls) {
-            try {
-                q.media_urls = JSON.parse(q.media_urls);
-            } catch (e) {
-                q.media_urls = [];
-            }
+            try { q.media_urls = JSON.parse(q.media_urls); } catch (e) { q.media_urls = []; }
         } else {
             q.media_urls = [];
         }

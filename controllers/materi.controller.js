@@ -1,60 +1,122 @@
 // contoh-server-sesm/controllers/materi.controller.js
 const Materi = require("../models/materi.model.js");
 
-// === FUNGSI EDIT SOAL (DIPERBAIKI) ===
+exports.updateChapterSettings = async (req, res) => {
+    const { chapterId } = req.params;
+    const settings = req.body;
+    if (typeof settings !== 'object' || settings === null || Object.keys(settings).length === 0) {
+        return res.status(400).send({ message: "Data pengaturan tidak valid." });
+    }
+    try {
+        const result = await Materi.updateChapterSettings(chapterId, settings);
+        if (result.affectedRows === 0) {
+            return res.status(404).send({ message: "Materi tidak ditemukan." });
+        }
+        res.status(200).send({ message: "Pengaturan materi berhasil diperbarui." });
+    } catch (error) {
+        console.error("Update Chapter Settings Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan saat memperbarui pengaturan." });
+    }
+};
+
+exports.submitAnswers = async (req, res) => {
+    const userId = req.userId;
+    const { materiKey } = req.params;
+    const { answers } = req.body; 
+
+    try {
+        const chapter = await Materi.findChapterByMateriKey(materiKey);
+        if (!chapter) return res.status(404).send({ message: "Bab tidak ditemukan." });
+
+        if (chapter.grading_mode === 'otomatis') {
+            let score = 0;
+            let anyWrong = false; // Flag untuk setting 'fail_on_any_wrong'
+            const questions = await Materi.getQuestionsByChapterKey(materiKey);
+            const submissionId = await Materi.createSubmission(userId, chapter.id, 0, true, 'selesai');
+
+            for (const ans of answers) {
+                const question = questions.find(q => q.id === ans.questionId);
+                let isCorrect = false;
+                
+                if (question && question.correctAnswer && question.correctAnswer.toLowerCase() === (ans.answer || '').toLowerCase()) {
+                    isCorrect = true;
+                    // Hanya tambah skor jika jawaban benar
+                    score += 10; 
+                } else {
+                    anyWrong = true;
+                    // Logika untuk setting_penalty_on_wrong (jika diaktifkan)
+                    if(chapter.setting_penalty_on_wrong){
+                        score -= 5; // Contoh penalti 5 poin
+                    }
+                    // Jika strict_zero_on_wrong tidak aktif, Anda bisa menambahkan skor parsial di sini.
+                    // Tapi karena defaultnya mati dan kita belum ada logika skor parsial, maka tidak ada penambahan skor.
+                }
+                await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, isCorrect);
+            }
+            
+            // Terapkan setting 'fail_on_any_wrong'
+            if(chapter.setting_fail_on_any_wrong && anyWrong){
+                score = 0;
+            }
+
+            // Pastikan skor tidak negatif
+            const finalScore = Math.max(0, score);
+
+            await Materi.gradeSubmissionManually(submissionId, finalScore);
+            res.status(200).send({ message: "Jawaban berhasil dikumpulkan!", score: finalScore });
+
+        } else { // Penilaian manual
+            const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'selesai');
+            for (const ans of answers) {
+                const questionExists = await Materi.checkQuestionExists(ans.questionId);
+                if(questionExists){
+                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
+                }
+            }
+            res.status(200).send({ message: "Jawaban berhasil dikumpulkan dan akan dinilai oleh guru." });
+        }
+    } catch (error) {
+        console.error("Submit Answer Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan internal saat memproses jawaban." });
+    }
+};
+
 exports.updateQuestion = async (req, res) => {
     const { questionId } = req.params;
     try {
         const mediaFiles = req.files;
-
-        // Ubah file baru yang diupload menjadi format objek {type, url}
-        const new_media_objects = mediaFiles
-            ? mediaFiles.map(file => ({ type: 'file', url: file.path.replace(/\\/g, "/") }))
-            : [];
-
-        // Ambil lampiran yang sudah ada dari body (link, text, file lama)
+        const new_media_objects = mediaFiles ? mediaFiles.map(file => ({ type: 'file', url: file.path.replace(/\\/g, "/") })) : [];
         const existing_attachments = req.body.attachments ? JSON.parse(req.body.attachments) : [];
-
-        // Gabungkan semua media menjadi satu array
         const all_media = [...existing_attachments, ...new_media_objects];
 
         const questionData = {
             ...req.body,
             options: req.body.options ? JSON.parse(req.body.options) : [],
-            // Gunakan array media yang sudah digabung
-            media_urls: all_media // Model akan menerima properti ini
+            media_urls: all_media
         };
-
         const updatedQuestion = await Materi.updateQuestion(questionId, questionData);
         res.status(200).json({ message: "Soal berhasil diperbarui.", data: updatedQuestion });
-
     } catch (error) {
         console.error("Update Question Error:", error);
         res.status(500).send({ message: error.message });
     }
 };
 
-// === FUNGSI TAMBAH SOAL (DIPERBAIKI) ===
 exports.addQuestion = async (req, res) => {
     const { materiKey } = req.params;
     try {
         const mediaFiles = req.files;
         const all_attachments = [];
 
-        // Proses file yang diunggah
         if (mediaFiles) {
             mediaFiles.forEach(file => {
                 all_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") });
             });
         }
-        
-        // Proses links dari body (termasuk link YouTube)
         if (req.body.links) {
             const links = JSON.parse(req.body.links);
             links.forEach(link => all_attachments.push({ type: 'link', url: link.url }));
         }
-        
-        // Proses texts dari body
         if (req.body.texts) {
             const texts = JSON.parse(req.body.texts);
             texts.forEach(text => all_attachments.push({ type: 'text', content: text.content }));
@@ -65,7 +127,6 @@ exports.addQuestion = async (req, res) => {
             options: req.body.options ? JSON.parse(req.body.options) : [],
             media_urls: all_attachments
         };
-
         const newQuestion = await Materi.createQuestion(materiKey, questionData);
         res.status(201).json(newQuestion);
     } catch (error) {
@@ -74,9 +135,6 @@ exports.addQuestion = async (req, res) => {
     }
 };
 
-// ... (Sisa kode di file ini tetap sama, tidak perlu diubah)
-
-// === KODE LAMA DI BAWAH INI TIDAK BERUBAH ===
 exports.getAllQuestionsForBank = async (req, res) => {
     const { jenjang, kelas } = req.query; 
     if (!jenjang) return res.status(400).send({ message: "Query 'jenjang' dibutuhkan." });
@@ -147,7 +205,6 @@ exports.deleteQuestion = async (req, res) => {
     }
 };
 
-// === UNTUK SISWA ===
 exports.getChaptersBySubjectName = async (req, res) => {
     const { jenjang, kelas, namaMapel } = req.params;
     try {
@@ -166,46 +223,5 @@ exports.getMateriSiswa = async (req, res) => {
         res.status(200).json(questionsForSiswa);
     } catch (error) {
         res.status(500).send({ message: error.message });
-    }
-};
-
-exports.submitAnswers = async (req, res) => {
-    const userId = req.userId;
-    const { materiKey } = req.params;
-    const { answers } = req.body; 
-
-    try {
-        const chapter = await Materi.findChapterByMateriKey(materiKey);
-        if (!chapter) return res.status(404).send({ message: "Bab tidak ditemukan." });
-        if (chapter.grading_mode === 'otomatis') {
-            let score = 0;
-            const questions = await Materi.getQuestionsByChapterKey(materiKey);
-            const submissionId = await Materi.createSubmission(userId, chapter.id, 0, true, 'selesai');
-            for (const ans of answers) {
-                const question = questions.find(q => q.id === ans.questionId);
-                let isCorrect = false;
-                if (question) {
-                    if (question.correctAnswer && question.correctAnswer.toLowerCase() === (ans.answer || '').toLowerCase()) {
-                        isCorrect = true;
-                        score += 10;
-                    }
-                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, isCorrect);
-                }
-            }
-            await Materi.gradeSubmissionManually(submissionId, score);
-            res.status(200).send({ message: "Jawaban berhasil dikumpulkan!", score });
-        } else {
-            const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'selesai');
-            for (const ans of answers) {
-                const questionExists = await Materi.checkQuestionExists(ans.questionId);
-                if(questionExists){
-                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
-                }
-            }
-            res.status(200).send({ message: "Jawaban berhasil dikumpulkan dan akan dinilai oleh guru." });
-        }
-    } catch (error) {
-        console.error("Submit Answer Error:", error);
-        res.status(500).send({ message: "Terjadi kesalahan internal saat memproses jawaban." });
     }
 };
