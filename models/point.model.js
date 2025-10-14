@@ -57,6 +57,28 @@ Point.getPointHistory = async (userId) => {
     return rows;
 };
 
+// --- FUNGSI BARU UNTUK RIWAYAT MATERI PER MAPEL ---
+Point.getHistoryForSubject = async (userId, subjectName) => {
+    const query = `
+        SELECT 
+            ss.id,
+            c.judul as title,
+            ss.score,
+            ss.submission_date as date,
+            ph.points_earned as points
+        FROM student_submissions ss
+        JOIN chapters c ON ss.chapter_id = c.id
+        JOIN subjects s ON c.subject_id = s.id
+        LEFT JOIN points_history ph ON (ph.activity_details LIKE CONCAT('%', c.judul, '%') AND ph.user_id = ss.user_id)
+        WHERE ss.user_id = ? AND s.nama_mapel = ? AND ss.status = 'selesai'
+        ORDER BY ss.submission_date DESC
+    `;
+    const [rows] = await db.execute(query, [userId, subjectName]);
+    // Memberikan nilai default 820 jika poin tidak tercatat di history
+    return rows.map(row => ({ ...row, points: row.points || 820 }));
+};
+
+
 // --- FUNGSI DIPERBAIKI ---
 Point.getQuizHistory = async (userId) => {
     const query = `

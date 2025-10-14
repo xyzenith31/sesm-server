@@ -1,5 +1,6 @@
 // contoh-server-sesm/controllers/materi.controller.js
 const Materi = require("../models/materi.model.js");
+const Point = require("../models/point.model.js"); // Impor model Point
 
 // --- FUNGSI BARU ---
 exports.addQuestionsFromBankToChapter = async (req, res) => {
@@ -47,9 +48,12 @@ exports.submitAnswers = async (req, res) => {
         const chapter = await Materi.findChapterByMateriKey(materiKey);
         if (!chapter) return res.status(404).send({ message: "Bab tidak ditemukan." });
 
+        const pointsAwarded = 820; // Poin yang diberikan
+        let finalScore = 0;
+
         if (chapter.grading_mode === 'otomatis') {
             let score = 0;
-            let anyWrong = false; // Flag untuk setting 'fail_on_any_wrong'
+            let anyWrong = false;
             const questions = await Materi.getQuestionsByChapterKey(materiKey);
             const submissionId = await Materi.createSubmission(userId, chapter.id, 0, true, 'selesai');
 
@@ -59,31 +63,22 @@ exports.submitAnswers = async (req, res) => {
                 
                 if (question && question.correctAnswer && question.correctAnswer.toLowerCase() === (ans.answer || '').toLowerCase()) {
                     isCorrect = true;
-                    // Hanya tambah skor jika jawaban benar
                     score += 10; 
                 } else {
                     anyWrong = true;
-                    // Logika untuk setting_penalty_on_wrong (jika diaktifkan)
                     if(chapter.setting_penalty_on_wrong){
-                        score -= 5; // Contoh penalti 5 poin
+                        score -= 5;
                     }
-                    // Jika strict_zero_on_wrong tidak aktif, Anda bisa menambahkan skor parsial di sini.
-                    // Tapi karena defaultnya mati dan kita belum ada logika skor parsial, maka tidak ada penambahan skor.
                 }
                 await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, isCorrect);
             }
             
-            // Terapkan setting 'fail_on_any_wrong'
             if(chapter.setting_fail_on_any_wrong && anyWrong){
                 score = 0;
             }
 
-            // Pastikan skor tidak negatif
-            const finalScore = Math.max(0, score);
-
+            finalScore = Math.max(0, score);
             await Materi.gradeSubmissionManually(submissionId, finalScore);
-            res.status(200).send({ message: "Jawaban berhasil dikumpulkan!", score: finalScore });
-
         } else { // Penilaian manual
             const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'selesai');
             for (const ans of answers) {
@@ -92,8 +87,22 @@ exports.submitAnswers = async (req, res) => {
                     await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
                 }
             }
-            res.status(200).send({ message: "Jawaban berhasil dikumpulkan dan akan dinilai oleh guru." });
         }
+
+        // Tambahkan poin setelah submit
+        await Point.addPoints(
+            userId,
+            pointsAwarded,
+            'MATERI_COMPLETION',
+            `Menyelesaikan materi: ${chapter.judul}`
+        );
+
+        res.status(200).send({ 
+            message: `Jawaban berhasil dikumpulkan dan Anda mendapatkan ${pointsAwarded} poin!`, 
+            score: finalScore,
+            pointsAwarded: pointsAwarded 
+        });
+
     } catch (error) {
         console.error("Submit Answer Error:", error);
         res.status(500).send({ message: "Terjadi kesalahan internal saat memproses jawaban." });

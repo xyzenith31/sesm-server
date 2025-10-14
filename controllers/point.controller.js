@@ -36,6 +36,18 @@ exports.getQuizHistory = async (req, res) => {
     }
 };
 
+// --- CONTROLLER BARU UNTUK RIWAYAT MATERI ---
+exports.getSubjectHistory = async (req, res) => {
+    const userId = req.userId;
+    const { subjectName } = req.params;
+    try {
+        const history = await Point.getHistoryForSubject(userId, subjectName);
+        res.status(200).json(history);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
 
 /**
  * PENTING: Controller ini sebaiknya TIDAK diekspos sebagai route publik.

@@ -33,6 +33,13 @@ module.exports = function(app) {
         [authJwt.verifyToken],
         controller.getQuizHistory
     );
+
+    // --- RUTE BARU UNTUK RIWAYAT MATERI PER MAPEL ---
+    app.get(
+        `${prefix}/subject-history/:subjectName`,
+        [authJwt.verifyToken],
+        controller.getSubjectHistory
+    );
     
     // CATATAN: Endpoint untuk MENAMBAHKAN poin sengaja tidak dibuat
     // karena alasan keamanan. Penambahan poin harus dipicu dari backend
