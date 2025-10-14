@@ -5,6 +5,45 @@ const path = require('path');
 
 const Quiz = {};
 
+// === FUNGSI BARU UNTUK UPDATE PENGATURAN KUIS (DIPERBAIKI) ===
+Quiz.updateSettings = async (quizId, settings) => {
+    const validSettings = [
+        'setting_time_per_question',
+        'setting_randomize_questions',
+        'setting_randomize_answers',
+        'setting_show_leaderboard',
+        'setting_show_memes',
+        'setting_allow_redemption',
+        'setting_play_music'
+    ];
+    
+    const fields = [];
+    const values = [];
+
+    for (const key in settings) {
+        if (validSettings.includes(key)) {
+            fields.push(`${key} = ?`);
+            let value = settings[key];
+            // PERBAIKAN: Konversi nilai boolean ke integer (1 atau 0)
+            if (typeof value === 'boolean') {
+                value = value ? 1 : 0;
+            }
+            values.push(value);
+        }
+    }
+
+    if (fields.length === 0) {
+        return { affectedRows: 0 };
+    }
+
+    const query = `UPDATE quizzes SET ${fields.join(", ")} WHERE id = ?`;
+    values.push(quizId);
+
+    const [result] = await db.execute(query, values);
+    return result;
+};
+
+
 const deleteFile = (url) => {
     if (!url) return;
     try {
@@ -139,10 +178,19 @@ Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLe
 };
 
 Quiz.getAll = async () => {
-    const query = `SELECT q.id, q.title, q.description, q.cover_image_url, q.recommended_level, u.nama as creator_name, (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) as question_count FROM quizzes q JOIN users u ON q.creator_id = u.id ORDER BY q.created_at DESC`;
+    const query = `
+      SELECT 
+        q.*, 
+        u.nama as creator_name, 
+        (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) as question_count 
+      FROM quizzes q 
+      JOIN users u ON q.creator_id = u.id 
+      ORDER BY q.created_at DESC
+    `;
     const [rows] = await db.execute(query);
     return rows;
 };
+
 
 Quiz.getQuestionsForQuiz = async (quizId) => {
     const id = parseInt(quizId, 10);

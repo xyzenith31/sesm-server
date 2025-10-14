@@ -2,6 +2,38 @@
 const Quiz = require("../models/quiz.model.js");
 const Point = require("../models/point.model.js"); // Impor model Point
 
+// === FUNGSI PENGATURAN KUIS (DIPERBAIKI DENGAN LOGGING) ===
+exports.updateQuizSettings = async (req, res) => {
+    const quizId = parseInt(req.params.quizId, 10);
+    const settings = req.body;
+
+    // --- LOGGING UNTUK DEBUGGING ---
+    console.log(`[INFO] Request to update settings for quizId: ${req.params.quizId}`);
+    console.log(`[DATA] Received settings payload:`, settings);
+
+    if (isNaN(quizId)) {
+        console.error(`[ERROR] Invalid quizId received: ${req.params.quizId}`);
+        return res.status(400).send({ message: "ID Kuis tidak valid." });
+    }
+
+    try {
+        const result = await Quiz.updateSettings(quizId, settings);
+        if (result.affectedRows === 0) {
+            console.warn(`[WARN] Quiz with ID ${quizId} not found for settings update.`);
+            return res.status(404).send({ message: `Kuis dengan ID ${quizId} tidak ditemukan.` });
+        }
+        console.log(`[SUCCESS] Settings for quizId: ${quizId} updated successfully.`);
+        res.status(200).send({ message: "Pengaturan kuis berhasil diperbarui." });
+    } catch (error) {
+        console.error(`[FATAL] Error updating settings for quizId: ${quizId}`, error);
+        res.status(500).send({ 
+            message: "Terjadi kesalahan internal pada server.",
+            error: error.message
+        });
+    }
+};
+
+
 // === FUNGSI EDIT SOAL ===
 exports.updateQuestion = async (req, res) => {
     const { questionId } = req.params;

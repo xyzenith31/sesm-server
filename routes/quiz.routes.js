@@ -25,7 +25,14 @@ module.exports = function (app) {
     app.post( `${adminPrefix}/:quizId/questions`, [authJwt.verifyToken, authJwt.isGuru, upload.array('mediaFiles', 5)], controller.addQuestionToQuiz );
     app.post( `${adminPrefix}/:quizId/add-from-bank`, [authJwt.verifyToken, authJwt.isGuru], controller.addQuestionsFromBank );
     
-    // --- ▼▼▼ RUTE BARU UNTUK EDIT & HAPUS SOAL SPESIFIK ▼▼▼ ---
+    // --- RUTE BARU UNTUK PENGATURAN KUIS ---
+    app.put(
+        `${adminPrefix}/:quizId/settings`,
+        [authJwt.verifyToken, authJwt.isGuru],
+        controller.updateQuizSettings
+    );
+
+    // --- RUTE EDIT & HAPUS SOAL SPESIFIK ---
     app.put(
         `${adminPrefix}/questions/:questionId`,
         [authJwt.verifyToken, authJwt.isGuru, upload.array('mediaFiles', 5)],
