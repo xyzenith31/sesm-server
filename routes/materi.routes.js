@@ -43,4 +43,11 @@ module.exports = function (app) {
     [authJwt.verifyToken, authJwt.isGuru],
     materiController.updateChapterSettings
   );
+
+  // --- RUTE BARU UNTUK MENAMBAH SOAL DARI BANK KE MATERI ---
+  app.post(
+    `${adminPrefix}/materi/:materiKey/add-from-bank`,
+    [authJwt.verifyToken, authJwt.isGuru],
+    materiController.addQuestionsFromBankToChapter
+  );
 };

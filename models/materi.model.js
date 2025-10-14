@@ -5,6 +5,63 @@ const path = require('path');
 
 const Materi = {};
 
+// --- FUNGSI BARU UNTUK MENAMBAH SOAL DARI BANK KE MATERI ---
+Materi.addQuestionsFromBankToChapter = async (materiKey, questionIds) => {
+    if (!questionIds || questionIds.length === 0) {
+        return 0;
+    }
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // 1. Dapatkan chapter_id dari materiKey
+        const [chapters] = await conn.execute("SELECT id FROM chapters WHERE materiKey = ?", [materiKey]);
+        if (chapters.length === 0) {
+            throw new Error(`Materi dengan key '${materiKey}' tidak ditemukan.`);
+        }
+        const chapterId = chapters[0].id;
+
+        let questionsAdded = 0;
+        for (const questionId of questionIds) {
+            // 2. Ambil data soal asli dari tabel 'questions'
+            const [originalQuestions] = await conn.execute("SELECT * FROM questions WHERE id = ?", [questionId]);
+            if (originalQuestions.length === 0) {
+                console.warn(`Soal dengan ID ${questionId} tidak ditemukan di bank soal, dilewati.`);
+                continue;
+            }
+            const originalQ = originalQuestions[0];
+
+            // 3. Masukkan (duplikasi) soal ke chapter tujuan
+            const [newQResult] = await conn.execute(
+                "INSERT INTO questions (pertanyaan, tipe_soal, jawaban_esai, chapter_id, media_urls) VALUES (?, ?, ?, ?, ?)",
+                [originalQ.pertanyaan, originalQ.tipe_soal, originalQ.jawaban_esai, chapterId, originalQ.media_urls]
+            );
+            const newQuestionId = newQResult.insertId;
+
+            // 4. Jika soal adalah pilihan ganda, duplikasi juga opsinya
+            if (originalQ.tipe_soal.includes('pilihan-ganda')) {
+                const [originalOptions] = await conn.execute("SELECT * FROM question_options WHERE question_id = ?", [questionId]);
+                for (const opt of originalOptions) {
+                    await conn.execute(
+                        "INSERT INTO question_options (opsi_jawaban, is_correct, question_id) VALUES (?, ?, ?)",
+                        [opt.opsi_jawaban, opt.is_correct, newQuestionId]
+                    );
+                }
+            }
+            questionsAdded++;
+        }
+
+        await conn.commit();
+        return questionsAdded;
+    } catch (error) {
+        await conn.rollback();
+        throw error;
+    } finally {
+        conn.release();
+    }
+};
+
+
 // --- FUNGSI BARU UNTUK UPDATE PENGATURAN ---
 Materi.updateChapterSettings = async (chapterId, settings) => {
     const fields = [];

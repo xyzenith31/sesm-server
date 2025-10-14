@@ -1,6 +1,25 @@
 // contoh-server-sesm/controllers/materi.controller.js
 const Materi = require("../models/materi.model.js");
 
+// --- FUNGSI BARU ---
+exports.addQuestionsFromBankToChapter = async (req, res) => {
+    const { materiKey } = req.params;
+    const { questionIds } = req.body;
+
+    if (!questionIds || !Array.isArray(questionIds) || questionIds.length === 0) {
+        return res.status(400).send({ message: "Daftar ID soal tidak valid." });
+    }
+
+    try {
+        const questionsAdded = await Materi.addQuestionsFromBankToChapter(materiKey, questionIds);
+        res.status(201).send({ message: `${questionsAdded} soal berhasil ditambahkan dari bank.` });
+    } catch (error) {
+        console.error("Add Questions from Bank to Chapter Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan saat menambah soal dari bank." });
+    }
+};
+
+
 exports.updateChapterSettings = async (req, res) => {
     const { chapterId } = req.params;
     const settings = req.body;
