@@ -7,6 +7,7 @@ const Quiz = {};
 
 // === FUNGSI BARU UNTUK UPDATE PENGATURAN KUIS (DIPERBAIKI) ===
 Quiz.updateSettings = async (quizId, settings) => {
+    // Tambahkan 'setting_is_timer_enabled' ke daftar
     const validSettings = [
         'setting_time_per_question',
         'setting_randomize_questions',
@@ -14,7 +15,8 @@ Quiz.updateSettings = async (quizId, settings) => {
         'setting_show_leaderboard',
         'setting_show_memes',
         'setting_allow_redemption',
-        'setting_play_music'
+        'setting_play_music',
+        'setting_is_timer_enabled' // <-- Tambahan baru
     ];
     
     const fields = [];
@@ -24,7 +26,7 @@ Quiz.updateSettings = async (quizId, settings) => {
         if (validSettings.includes(key)) {
             fields.push(`${key} = ?`);
             let value = settings[key];
-            // PERBAIKAN: Konversi nilai boolean ke integer (1 atau 0)
+            // Konversi nilai boolean ke integer (1 atau 0)
             if (typeof value === 'boolean') {
                 value = value ? 1 : 0;
             }
@@ -178,6 +180,7 @@ Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLe
 };
 
 Quiz.getAll = async () => {
+    // Tambahkan field `setting_is_timer_enabled` ke query SELECT
     const query = `
       SELECT 
         q.*, 
