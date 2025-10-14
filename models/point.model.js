@@ -57,6 +57,25 @@ Point.getPointHistory = async (userId) => {
     return rows;
 };
 
+// --- FUNGSI DIPERBAIKI ---
+Point.getQuizHistory = async (userId) => {
+    const query = `
+        SELECT 
+            qs.id,
+            q.title,
+            qs.score,
+            qs.submitted_at as date,
+            600 as points 
+        FROM quiz_submissions qs
+        JOIN quizzes q ON qs.quiz_id = q.id
+        WHERE qs.user_id = ?
+        ORDER BY qs.submitted_at DESC
+    `;
+    const [rows] = await db.execute(query, [userId]);
+    return rows;
+};
+
+
 /**
  * Mengambil total poin dan informasi peringkat user.
  * @param {number} userId - ID dari user.

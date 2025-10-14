@@ -25,6 +25,18 @@ exports.getHistory = async (req, res) => {
     }
 };
 
+// --- CONTROLLER BARU ---
+exports.getQuizHistory = async (req, res) => {
+    const userId = req.userId;
+    try {
+        const history = await Point.getQuizHistory(userId);
+        res.status(200).json(history);
+    } catch (error) {
+        res.status(500).send({ message: error.message });
+    }
+};
+
+
 /**
  * PENTING: Controller ini sebaiknya TIDAK diekspos sebagai route publik.
  * Ini adalah contoh bagaimana Anda bisa memanggilnya dari controller lain

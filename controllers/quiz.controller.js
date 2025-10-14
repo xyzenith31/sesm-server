@@ -145,7 +145,7 @@ exports.submitQuiz = async (req, res) => {
         const result = await Quiz.submit(userId, quizId, answers);
 
         // 2. Tambahkan poin setelah kuis berhasil disubmit
-        const pointsToAdd = 250; // Anda bisa membuat ini dinamis nanti
+        const pointsToAdd = 600; // --- DIUBAH MENJADI 600 ---
         const quizInfo = await Quiz.findById(quizId); // Ambil info kuis
         
         await Point.addPoints(

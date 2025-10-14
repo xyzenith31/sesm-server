@@ -27,6 +27,13 @@ module.exports = function(app) {
         controller.getHistory
     );
     
+    // --- RUTE BARU UNTUK RIWAYAT KUIS ---
+    app.get(
+        `${prefix}/quiz-history`,
+        [authJwt.verifyToken],
+        controller.getQuizHistory
+    );
+    
     // CATATAN: Endpoint untuk MENAMBAHKAN poin sengaja tidak dibuat
     // karena alasan keamanan. Penambahan poin harus dipicu dari backend
     // setelah sebuah aksi divalidasi (misal: setelah menyelesaikan kuis).
