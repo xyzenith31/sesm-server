@@ -26,17 +26,37 @@ User.findByUsernameOrEmail = async (identifier) => {
 };
 
 User.updateById = async (userId, data) => {
-  // Tambahkan 'avatar' ke daftar field yang bisa di-update
   const { nama, username, umur, password, avatar } = data;
 
   const fields = [];
   const values = [];
 
-  if (nama !== undefined) { fields.push("nama = ?"); values.push(nama); }
-  if (username !== undefined) { fields.push("username = ?"); values.push(username); }
-  if (umur !== undefined) { fields.push("umur = ?"); values.push(umur); }
-  if (avatar !== undefined) { fields.push("avatar = ?"); values.push(avatar); } // <-- Tambahkan ini
-  if (password) { fields.push("password = ?"); values.push(bcrypt.hashSync(password, 8)); }
+  // Validasi dan tambahkan field yang akan diupdate
+  if (nama) { fields.push("nama = ?"); values.push(nama); }
+  if (username) { fields.push("username = ?"); values.push(username); }
+  
+  // Pastikan umur adalah angka atau null, bukan string kosong
+  if (umur !== undefined) {
+    const age = umur === '' ? null : parseInt(umur, 10);
+    fields.push("umur = ?");
+    values.push(age);
+  }
+
+  if (avatar !== undefined) {
+      if (avatar === 'DELETE') {
+          fields.push("avatar = ?");
+          values.push(null);
+      } else {
+          fields.push("avatar = ?");
+          values.push(avatar);
+      }
+  }
+  
+  // Hanya update password jika diisi (tidak kosong)
+  if (password) {
+    fields.push("password = ?");
+    values.push(bcrypt.hashSync(password, 8));
+  }
 
   if (fields.length === 0) {
     return { affectedRows: 0 };
