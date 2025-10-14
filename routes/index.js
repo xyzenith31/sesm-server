@@ -5,7 +5,8 @@ const userRoutes = require('./user.routes.js');
 const materiRoutes = require('./materi.routes.js');
 const nilaiRoutes = require('./nilai.routes.js');
 const quizRoutes = require('./quiz.routes.js');
-const pointRoutes = require('./point.routes.js'); // <-- 1. Impor rute poin
+const pointRoutes = require('./point.routes.js');
+const diaryRoutes = require('./diary.routes.js'); // <-- 1. Impor rute diary
 
 module.exports = function(app) {
   authRoutes(app);
@@ -14,5 +15,6 @@ module.exports = function(app) {
   materiRoutes(app);
   nilaiRoutes(app);
   quizRoutes(app);
-  pointRoutes(app); // <-- 2. Daftarkan rute poin
+  pointRoutes(app);
+  diaryRoutes(app); // <-- 2. Daftarkan rute diary di sini
 };
