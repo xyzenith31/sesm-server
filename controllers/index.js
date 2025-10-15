@@ -6,7 +6,8 @@ const materiController = require('./materi.controller.js');
 const nilaiController = require('./nilai.controller.js');
 const quizController = require('./quiz.controller.js');
 const pointController = require('./point.controller.js');
-const diaryController = require('./diary.controller.js'); // Tambahkan ini
+const diaryController = require('./diary.controller.js');
+const bookmarkController = require('./bookmark.controller.js'); // Tambahkan ini
 
 module.exports = {
   authController,
@@ -16,5 +17,6 @@ module.exports = {
   nilaiController,
   quizController,
   pointController,
-  diaryController, // Tambahkan ini
+  diaryController,
+  bookmarkController, // Tambahkan ini
 };

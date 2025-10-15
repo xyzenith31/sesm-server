@@ -4,6 +4,15 @@ const bcrypt = require('bcryptjs');
 
 const User = {};
 
+// --- FUNGSI BARU: Mendapatkan semua pengguna untuk admin ---
+User.getAll = async () => {
+    const [rows] = await db.execute(
+        "SELECT id, username, email, nama, umur, role, jenjang, kelas FROM users ORDER BY nama ASC"
+    );
+    return rows;
+};
+
+
 User.findById = async (userId) => {
     const [rows] = await db.execute("SELECT * FROM users WHERE id = ?", [userId]);
     return rows[0];
@@ -26,7 +35,7 @@ User.findByUsernameOrEmail = async (identifier) => {
 };
 
 User.updateById = async (userId, data) => {
-  const { nama, username, umur, password, avatar } = data;
+  const { nama, username, umur, password, avatar, role, jenjang, kelas } = data;
 
   const fields = [];
   const values = [];
@@ -34,6 +43,9 @@ User.updateById = async (userId, data) => {
   // Validasi dan tambahkan field yang akan diupdate
   if (nama) { fields.push("nama = ?"); values.push(nama); }
   if (username) { fields.push("username = ?"); values.push(username); }
+  if (role) { fields.push("role = ?"); values.push(role); }
+  if (jenjang) { fields.push("jenjang = ?"); values.push(jenjang); }
+  if (kelas) { fields.push("kelas = ?"); values.push(kelas); }
   
   // Pastikan umur adalah angka atau null, bukan string kosong
   if (umur !== undefined) {
@@ -113,5 +125,14 @@ User.getLeaderboard = async () => {
     const [rows] = await db.execute(query);
     return rows;
 };
+
+// --- FUNGSI BARU: Menghapus pengguna ---
+User.deleteById = async (userId) => {
+    // Tambahan: Hapus data terkait jika perlu (misal: submission, dll.)
+    // Untuk saat ini, kita hanya hapus user-nya
+    const [result] = await db.execute("DELETE FROM users WHERE id = ?", [userId]);
+    return result.affectedRows;
+};
+
 
 module.exports = User;

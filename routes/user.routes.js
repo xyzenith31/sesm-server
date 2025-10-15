@@ -1,7 +1,7 @@
 // contoh-sesm-server/routes/user.routes.js
 const userController = require("../controllers/user.controller.js");
-const { verifyToken } = require("../middlewares/auth.jwt.js");
-const upload = require("../middlewares/upload.middleware.js"); // <-- 1. Impor middleware upload
+const { authJwt } = require("../middlewares"); // <-- UBAH INI
+const upload = require("../middlewares/upload.middleware.js"); 
 
 module.exports = function(app) {
   app.use(function(req, res, next) {
@@ -12,25 +12,52 @@ module.exports = function(app) {
     next();
   });
 
+  // === RUTE UNTUK PENGGUNA BIASA (SISWA) ===
   app.put(
     "/api/user/profile/level",
-    [verifyToken],
+    [authJwt.verifyToken],
     userController.updateLevelAndClass
   );
 
-  // --- (ROUTE DIPERBARUI DI SINI) ---
   app.put(
     "/api/user",
     [
-      verifyToken, 
-      upload.single('avatar') // <-- 2. Tambahkan middleware ini
+      authJwt.verifyToken, 
+      upload.single('avatar')
     ], 
     userController.updateUserProfile
   );
   
   app.get(
     "/api/leaderboard",
-    [verifyToken],
+    [authJwt.verifyToken],
     userController.getLeaderboard
+  );
+
+  // === RUTE-RUTE BARU UNTUK ADMIN/GURU ===
+  const adminPrefix = "/api/admin/users";
+
+  app.get(
+    adminPrefix,
+    [authJwt.verifyToken, authJwt.isGuru],
+    userController.getAllUsers
+  );
+
+  app.post(
+    adminPrefix,
+    [authJwt.verifyToken, authJwt.isGuru],
+    userController.createUserByAdmin
+  );
+
+  app.put(
+    `${adminPrefix}/:userId`,
+    [authJwt.verifyToken, authJwt.isGuru],
+    userController.updateUserByAdmin
+  );
+
+  app.delete(
+    `${adminPrefix}/:userId`,
+    [authJwt.verifyToken, authJwt.isGuru],
+    userController.deleteUserByAdmin
   );
 };
