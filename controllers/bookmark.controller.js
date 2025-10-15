@@ -1,6 +1,7 @@
 // contoh-sesm-server/controllers/bookmark.controller.js
 const Bookmark = require("../models/bookmark.model.js");
-const db = require("../config/database.config.js"); // Impor db untuk query langsung
+const db = require("../config/database.config.js");
+const Point = require("../models/point.model.js"); // <-- 1. Impor model Point
 
 const determineType = (file, link) => {
     if (link) return 'video_link';
@@ -64,16 +65,16 @@ exports.deleteBookmark = async (req, res) => {
     } catch (error) { res.status(500).send({ message: "Gagal menghapus." }); }
 };
 
-// --- CONTROLLER BARU UNTUK NILAI ---
+// --- CONTROLLER NILAI DENGAN PENAMBAHAN POIN ---
 exports.submitAnswers = async (req, res) => {
     const userId = req.userId;
     const { bookmarkId } = req.params;
     const { answers } = req.body;
     try {
-        const [bookmarks] = await db.execute("SELECT tasks, grading_type FROM bookmarks WHERE id = ?", [bookmarkId]);
+        const [bookmarks] = await db.execute("SELECT title, tasks, grading_type FROM bookmarks WHERE id = ?", [bookmarkId]);
         if (!bookmarks.length) return res.status(404).send({ message: "Bookmark tidak ditemukan." });
         
-        const { tasks, grading_type } = bookmarks[0];
+        const { title, tasks, grading_type } = bookmarks[0];
         const questions = JSON.parse(tasks || '[]');
         
         let score = null;
@@ -83,8 +84,7 @@ exports.submitAnswers = async (req, res) => {
         for (let i = 0; i < questions.length; i++) {
             const questionText = questions[i];
             const answerText = answers[i] || '';
-            let isCorrect = null; // Default NULL
-            // Penilaian otomatis hanya untuk soal yang ada kunci jawabannya (format: "Pertanyaan@@KunciJawaban")
+            let isCorrect = null;
             if (grading_type === 'otomatis' && questionText.includes('@@')) {
                 const [q, key] = questionText.split('@@');
                 isCorrect = answerText.trim().toLowerCase() === key.trim().toLowerCase();
@@ -93,14 +93,33 @@ exports.submitAnswers = async (req, res) => {
             await Bookmark.saveStudentAnswer(submissionId, i, questionText.split('@@')[0], answerText, isCorrect);
         }
 
+        // --- 2. Tambahkan Poin ---
+        const pointsAwarded = 600;
+        await Point.addPoints(
+            userId,
+            pointsAwarded,
+            'BOOKMARK_COMPLETION',
+            `Menyelesaikan materi bookmark: ${title}`
+        );
+
+        let responsePayload = {
+            message: `Jawaban berhasil dikumpulkan dan Anda mendapatkan ${pointsAwarded} poin!`,
+            pointsAwarded
+        };
+
         if (grading_type === 'otomatis') {
             score = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 100;
             await Bookmark.gradeSubmissionManually(submissionId, score);
-            res.status(201).send({ message: "Jawaban berhasil dikumpulkan!", score });
-        } else {
-            res.status(201).send({ message: "Jawaban berhasil dikumpulkan dan akan segera dinilai oleh guru." });
+            responsePayload.score = score;
         }
-    } catch (error) { res.status(500).send({ message: "Gagal menyimpan jawaban." }); }
+
+        // --- 3. Kirim respons dengan info poin ---
+        res.status(201).send(responsePayload);
+
+    } catch (error) { 
+        console.error("Submit Bookmark Error:", error);
+        res.status(500).send({ message: "Gagal menyimpan jawaban." }); 
+    }
 };
 
 exports.getSubmissions = async (req, res) => {
