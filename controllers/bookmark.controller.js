@@ -1,7 +1,7 @@
 // contoh-sesm-server/controllers/bookmark.controller.js
 const Bookmark = require("../models/bookmark.model.js");
 const db = require("../config/database.config.js");
-const Point = require("../models/point.model.js"); // <-- 1. Impor model Point
+const Point = require("../models/point.model.js");
 
 const determineType = (file, link) => {
     if (link) return 'video_link';
@@ -20,35 +20,70 @@ exports.createBookmark = async (req, res) => {
     const { title, description, subject, url_link, tasks, grading_type } = req.body;
     const creator_id = req.userId;
     if (!title) return res.status(400).send({ message: "Judul wajib diisi." });
+
     try {
         const mainFile = req.files?.mainFile?.[0];
         const coverImage = req.files?.coverImage?.[0];
+
+        let parsedTasks = [];
+        if (typeof tasks === 'string') {
+            try {
+                parsedTasks = JSON.parse(tasks);
+            } catch (e) {
+                return res.status(400).send({ message: "Format data tugas tidak valid." });
+            }
+        } else if (Array.isArray(tasks)) {
+            parsedTasks = tasks;
+        }
+
         const bookmarkData = {
             title, description, subject,
             type: determineType(mainFile, url_link),
-            url: url_link || (mainFile ? mainFile.path.replace(/\\/g, "/") : null),
+            // --- PERBAIKAN DI SINI ---
+            // Ganti 'null' menjadi string kosong '' jika tidak ada file atau link
+            url: url_link || (mainFile ? mainFile.path.replace(/\\/g, "/") : ''),
             cover_image_url: coverImage ? coverImage.path.replace(/\\/g, "/") : null,
             creator_id,
-            tasks: tasks ? JSON.parse(tasks) : [],
+            tasks: parsedTasks,
             grading_type: grading_type || 'manual'
         };
         const newBookmark = await Bookmark.create(bookmarkData);
         res.status(201).send({ message: "Materi berhasil ditambahkan.", data: newBookmark });
-    } catch (error) { res.status(500).send({ message: "Gagal menyimpan." }); }
+    } catch (error) {
+        console.error("CREATE BOOKMARK ERROR:", error);
+        res.status(500).send({ message: "Gagal menyimpan materi di server." });
+    }
 };
 
 exports.updateBookmark = async (req, res) => {
     const { bookmarkId } = req.params;
     const { title, description, subject, tasks, grading_type } = req.body;
     if (!title || !subject) return res.status(400).send({ message: "Judul dan subjek wajib diisi." });
+
     try {
-        const dataToUpdate = { title, description, subject, tasks: tasks ? JSON.parse(tasks) : [], grading_type };
+        let parsedTasks = [];
+        if (typeof tasks === 'string') {
+            try {
+                parsedTasks = JSON.parse(tasks);
+            } catch (e) {
+                 return res.status(400).send({ message: "Format data tugas tidak valid." });
+            }
+        } else if (Array.isArray(tasks)) {
+            parsedTasks = tasks;
+        }
+
+        const dataToUpdate = { title, description, subject, tasks: parsedTasks, grading_type };
         const affectedRows = await Bookmark.updateById(bookmarkId, dataToUpdate);
         if (affectedRows === 0) return res.status(404).send({ message: "Materi tidak ditemukan." });
         res.status(200).send({ message: "Materi berhasil diperbarui." });
-    } catch (error) { res.status(500).send({ message: "Gagal memperbarui." }); }
+    } catch (error) {
+        console.error("UPDATE BOOKMARK ERROR:", error);
+        res.status(500).send({ message: "Gagal memperbarui materi di server." });
+    }
 };
 
+
+// --- SISA KODE (TIDAK BERUBAH) ---
 exports.getAllBookmarks = async (req, res) => {
     try {
         const bookmarks = await Bookmark.findAllWithTasks();
@@ -65,7 +100,6 @@ exports.deleteBookmark = async (req, res) => {
     } catch (error) { res.status(500).send({ message: "Gagal menghapus." }); }
 };
 
-// --- CONTROLLER NILAI DENGAN PENAMBAHAN POIN ---
 exports.submitAnswers = async (req, res) => {
     const userId = req.userId;
     const { bookmarkId } = req.params;
@@ -93,7 +127,6 @@ exports.submitAnswers = async (req, res) => {
             await Bookmark.saveStudentAnswer(submissionId, i, questionText.split('@@')[0], answerText, isCorrect);
         }
 
-        // --- 2. Tambahkan Poin ---
         const pointsAwarded = 600;
         await Point.addPoints(
             userId,
@@ -113,7 +146,6 @@ exports.submitAnswers = async (req, res) => {
             responsePayload.score = score;
         }
 
-        // --- 3. Kirim respons dengan info poin ---
         res.status(201).send(responsePayload);
 
     } catch (error) { 
