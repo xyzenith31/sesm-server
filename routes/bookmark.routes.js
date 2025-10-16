@@ -17,7 +17,9 @@ module.exports = function (app) {
     // --- RUTE GURU ---
     const adminPrefix = "/api/admin/bookmarks";
     app.post(adminPrefix, [authJwt.verifyToken, authJwt.isGuru, upload.fields([{ name: 'mainFile', maxCount: 1 }, { name: 'coverImage', maxCount: 1 }])], controller.createBookmark);
-    app.put(`${adminPrefix}/:bookmarkId`, [authJwt.verifyToken, authJwt.isGuru], controller.updateBookmark);
+    
+    app.put(`${adminPrefix}/:bookmarkId`, [authJwt.verifyToken, authJwt.isGuru, upload.fields([{ name: 'mainFile', maxCount: 1 }, { name: 'coverImage', maxCount: 1 }])], controller.updateBookmark);
+    
     app.delete(`${adminPrefix}/:bookmarkId`, [authJwt.verifyToken, authJwt.isGuru], controller.deleteBookmark);
     
     // Rute Nilai

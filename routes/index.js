@@ -7,7 +7,7 @@ const nilaiRoutes = require('./nilai.routes.js');
 const quizRoutes = require('./quiz.routes.js');
 const pointRoutes = require('./point.routes.js');
 const diaryRoutes = require('./diary.routes.js');
-const bookmarkRoutes = require('./bookmark.routes.js'); // <-- Tambahkan ini
+const bookmarkRoutes = require('./bookmark.routes.js');
 
 module.exports = function(app) {
   authRoutes(app);
@@ -18,5 +18,5 @@ module.exports = function(app) {
   quizRoutes(app);
   pointRoutes(app);
   diaryRoutes(app);
-  bookmarkRoutes(app); // <-- Daftarkan di sini
+  bookmarkRoutes(app); // Memanggil fungsi yang diekspor
 };

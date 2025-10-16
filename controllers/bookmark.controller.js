@@ -2,6 +2,8 @@
 const Bookmark = require("../models/bookmark.model.js");
 const db = require("../config/database.config.js");
 const Point = require("../models/point.model.js");
+const fs = require('fs');
+const path = require('path');
 
 const determineType = (file, link) => {
     if (link) return 'video_link';
@@ -16,8 +18,20 @@ const determineType = (file, link) => {
     return 'unknown';
 };
 
+const deleteFile = (url) => {
+    if (!url) return;
+    try {
+        const filePath = path.join(__dirname, '..', url);
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+    } catch (err) {
+        console.error(`Gagal menghapus file: ${url}`, err);
+    }
+};
+
 exports.createBookmark = async (req, res) => {
-    const { title, description, subject, url_link, tasks, grading_type } = req.body;
+    const { title, description, subject, url_link, tasks, grading_type, recommended_level } = req.body;
     const creator_id = req.userId;
     if (!title) return res.status(400).send({ message: "Judul wajib diisi." });
 
@@ -27,11 +41,7 @@ exports.createBookmark = async (req, res) => {
 
         let parsedTasks = [];
         if (typeof tasks === 'string') {
-            try {
-                parsedTasks = JSON.parse(tasks);
-            } catch (e) {
-                return res.status(400).send({ message: "Format data tugas tidak valid." });
-            }
+            try { parsedTasks = JSON.parse(tasks); } catch (e) { return res.status(400).send({ message: "Format data tugas tidak valid." });}
         } else if (Array.isArray(tasks)) {
             parsedTasks = tasks;
         }
@@ -39,13 +49,12 @@ exports.createBookmark = async (req, res) => {
         const bookmarkData = {
             title, description, subject,
             type: determineType(mainFile, url_link),
-            // --- PERBAIKAN DI SINI ---
-            // Ganti 'null' menjadi string kosong '' jika tidak ada file atau link
             url: url_link || (mainFile ? mainFile.path.replace(/\\/g, "/") : ''),
             cover_image_url: coverImage ? coverImage.path.replace(/\\/g, "/") : null,
             creator_id,
             tasks: parsedTasks,
-            grading_type: grading_type || 'manual'
+            grading_type: grading_type || 'manual',
+            recommended_level: recommended_level || 'Semua'
         };
         const newBookmark = await Bookmark.create(bookmarkData);
         res.status(201).send({ message: "Materi berhasil ditambahkan.", data: newBookmark });
@@ -55,26 +64,51 @@ exports.createBookmark = async (req, res) => {
     }
 };
 
+// --- PERUBAHAN DI SINI: Logika update file ditambahkan ---
 exports.updateBookmark = async (req, res) => {
     const { bookmarkId } = req.params;
-    const { title, description, subject, tasks, grading_type } = req.body;
+    const { title, description, subject, tasks, grading_type, recommended_level, url_link } = req.body;
+    
     if (!title || !subject) return res.status(400).send({ message: "Judul dan subjek wajib diisi." });
 
     try {
+        const [oldBookmarks] = await db.execute("SELECT url, cover_image_url, type FROM bookmarks WHERE id = ?", [bookmarkId]);
+        if (oldBookmarks.length === 0) {
+            return res.status(404).send({ message: "Materi tidak ditemukan." });
+        }
+        const oldBookmark = oldBookmarks[0];
+
+        const dataToUpdate = { title, description, subject, grading_type, recommended_level };
+        
+        const mainFile = req.files?.mainFile?.[0];
+        const coverImage = req.files?.coverImage?.[0];
+        
+        if (mainFile) {
+            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url);
+            dataToUpdate.url = mainFile.path.replace(/\\/g, "/");
+            dataToUpdate.type = determineType(mainFile, null);
+        } else if (url_link) {
+            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url);
+            dataToUpdate.url = url_link;
+            dataToUpdate.type = 'video_link';
+        }
+
+        if (coverImage) {
+            deleteFile(oldBookmark.cover_image_url);
+            dataToUpdate.cover_image_url = coverImage.path.replace(/\\/g, "/");
+        }
+
         let parsedTasks = [];
         if (typeof tasks === 'string') {
-            try {
-                parsedTasks = JSON.parse(tasks);
-            } catch (e) {
-                 return res.status(400).send({ message: "Format data tugas tidak valid." });
-            }
+            try { parsedTasks = JSON.parse(tasks); } catch (e) { return res.status(400).send({ message: "Format data tugas tidak valid." });}
         } else if (Array.isArray(tasks)) {
             parsedTasks = tasks;
         }
-
-        const dataToUpdate = { title, description, subject, tasks: parsedTasks, grading_type };
+        dataToUpdate.tasks = parsedTasks;
+        
         const affectedRows = await Bookmark.updateById(bookmarkId, dataToUpdate);
-        if (affectedRows === 0) return res.status(404).send({ message: "Materi tidak ditemukan." });
+        if (affectedRows === 0) return res.status(404).send({ message: "Materi tidak ditemukan saat proses update." });
+
         res.status(200).send({ message: "Materi berhasil diperbarui." });
     } catch (error) {
         console.error("UPDATE BOOKMARK ERROR:", error);
@@ -82,8 +116,7 @@ exports.updateBookmark = async (req, res) => {
     }
 };
 
-
-// --- SISA KODE (TIDAK BERUBAH) ---
+// ... (Sisa controller tidak berubah)
 exports.getAllBookmarks = async (req, res) => {
     try {
         const bookmarks = await Bookmark.findAllWithTasks();
@@ -116,15 +149,19 @@ exports.submitAnswers = async (req, res) => {
         const submissionId = await Bookmark.createSubmission(userId, bookmarkId);
 
         for (let i = 0; i < questions.length; i++) {
-            const questionText = questions[i];
+            const questionObj = questions[i];
+            const questionText = questionObj.question;
             const answerText = answers[i] || '';
             let isCorrect = null;
-            if (grading_type === 'otomatis' && questionText.includes('@@')) {
-                const [q, key] = questionText.split('@@');
-                isCorrect = answerText.trim().toLowerCase() === key.trim().toLowerCase();
+            if (grading_type === 'otomatis') {
+                if (questionObj.type.includes('pilihan-ganda')) {
+                    isCorrect = answerText.trim().toLowerCase() === (questionObj.correctAnswer || '').trim().toLowerCase();
+                } else {
+                    isCorrect = false; // Esai perlu dinilai manual
+                }
                 if(isCorrect) correctCount++;
             }
-            await Bookmark.saveStudentAnswer(submissionId, i, questionText.split('@@')[0], answerText, isCorrect);
+            await Bookmark.saveStudentAnswer(submissionId, i, questionText, answerText, isCorrect);
         }
 
         const pointsAwarded = 600;
@@ -141,7 +178,8 @@ exports.submitAnswers = async (req, res) => {
         };
 
         if (grading_type === 'otomatis') {
-            score = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 100;
+            const mcqCount = questions.filter(q => q.type.includes('pilihan-ganda')).length;
+            score = mcqCount > 0 ? Math.round((correctCount / mcqCount) * 100) : 100;
             await Bookmark.gradeSubmissionManually(submissionId, score);
             responsePayload.score = score;
         }

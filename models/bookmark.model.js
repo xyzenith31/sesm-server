@@ -18,16 +18,16 @@ const deleteFile = (url) => {
 };
 
 Bookmark.create = async (data) => {
-    const { title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type } = data;
+    const { title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type, recommended_level } = data; // Tambahkan recommended_level
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
         const tasksJson = JSON.stringify(tasks || []);
         const query = `
-            INSERT INTO bookmarks (title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO bookmarks (title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type, recommended_level) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        const [result] = await conn.execute(query, [title, description, type, url, subject, cover_image_url, creator_id, tasksJson, grading_type]);
+        const [result] = await conn.execute(query, [title, description, type, url, subject, cover_image_url, creator_id, tasksJson, grading_type, recommended_level]); // Tambahkan recommended_level
         
         await conn.commit();
         return { id: result.insertId, ...data };
@@ -56,7 +56,7 @@ Bookmark.findAllWithTasks = async () => {
 };
 
 Bookmark.updateById = async (bookmarkId, data) => {
-    const { title, description, subject, tasks, grading_type } = data;
+    const { title, description, subject, tasks, grading_type, recommended_level } = data; // Tambahkan recommended_level
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
@@ -64,10 +64,10 @@ Bookmark.updateById = async (bookmarkId, data) => {
 
         const query = `
             UPDATE bookmarks 
-            SET title = ?, description = ?, subject = ?, tasks = ?, grading_type = ?
+            SET title = ?, description = ?, subject = ?, tasks = ?, grading_type = ?, recommended_level = ?
             WHERE id = ?
         `;
-        const [result] = await conn.execute(query, [title, description, subject, tasksJson, grading_type, bookmarkId]);
+        const [result] = await conn.execute(query, [title, description, subject, tasksJson, grading_type, recommended_level, bookmarkId]); // Tambahkan recommended_level
         
         await conn.commit();
         return result.affectedRows;
