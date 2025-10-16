@@ -4,10 +4,10 @@ const bcrypt = require('bcryptjs');
 
 const User = {};
 
-// --- FUNGSI BARU: Mendapatkan semua pengguna untuk admin ---
+// --- FUNGSI DIPERBARUI: Menambahkan kolom 'avatar' ke query SELECT ---
 User.getAll = async () => {
     const [rows] = await db.execute(
-        "SELECT id, username, email, nama, umur, role, jenjang, kelas FROM users ORDER BY nama ASC"
+        "SELECT id, username, email, nama, umur, role, jenjang, kelas, avatar FROM users ORDER BY nama ASC"
     );
     return rows;
 };
@@ -126,10 +126,7 @@ User.getLeaderboard = async () => {
     return rows;
 };
 
-// --- FUNGSI BARU: Menghapus pengguna ---
 User.deleteById = async (userId) => {
-    // Tambahan: Hapus data terkait jika perlu (misal: submission, dll.)
-    // Untuk saat ini, kita hanya hapus user-nya
     const [result] = await db.execute("DELETE FROM users WHERE id = ?", [userId]);
     return result.affectedRows;
 };
