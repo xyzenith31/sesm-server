@@ -5,6 +5,7 @@ const Point = require("../models/point.model.js");
 const fs = require('fs');
 const path = require('path');
 
+// Helper to determine material type based on input
 const determineType = (file, link) => {
     if (link) return 'video_link';
     if (file) {
@@ -18,6 +19,7 @@ const determineType = (file, link) => {
     return 'unknown';
 };
 
+// Helper to safely delete a file from the server
 const deleteFile = (url) => {
     if (!url) return;
     try {
@@ -33,12 +35,15 @@ const deleteFile = (url) => {
 exports.createBookmark = async (req, res) => {
     const { title, description, subject, url_link, tasks, grading_type, recommended_level } = req.body;
     const creator_id = req.userId;
-    if (!title) return res.status(400).send({ message: "Judul wajib diisi." });
+    
+    const mainFile = req.files?.mainFile?.[0];
+    const coverImage = req.files?.coverImage?.[0];
+
+    // --- VALIDASI KETAT ---
+    if (!title || !subject) return res.status(400).send({ message: "Judul dan Mapel wajib diisi." });
+    if (!mainFile && !url_link) return res.status(400).send({ message: "Harus ada File Utama atau Link Video yang diisi." });
 
     try {
-        const mainFile = req.files?.mainFile?.[0];
-        const coverImage = req.files?.coverImage?.[0];
-
         let parsedTasks = [];
         if (typeof tasks === 'string') {
             try { parsedTasks = JSON.parse(tasks); } catch (e) { return res.status(400).send({ message: "Format data tugas tidak valid." });}
@@ -64,7 +69,7 @@ exports.createBookmark = async (req, res) => {
     }
 };
 
-// --- PERUBAHAN DI SINI: Logika update file ditambahkan ---
+// --- CONTROLLER UPDATE DIPERBARUI TOTAL ---
 exports.updateBookmark = async (req, res) => {
     const { bookmarkId } = req.params;
     const { title, description, subject, tasks, grading_type, recommended_level, url_link } = req.body;
@@ -83,21 +88,24 @@ exports.updateBookmark = async (req, res) => {
         const mainFile = req.files?.mainFile?.[0];
         const coverImage = req.files?.coverImage?.[0];
         
+        // Logic to update main file or link
         if (mainFile) {
-            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url);
+            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url); // Hapus file lama jika ada
             dataToUpdate.url = mainFile.path.replace(/\\/g, "/");
             dataToUpdate.type = determineType(mainFile, null);
         } else if (url_link) {
-            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url);
+            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url); // Hapus file lama jika ada
             dataToUpdate.url = url_link;
             dataToUpdate.type = 'video_link';
         }
 
+        // Logic to update cover image
         if (coverImage) {
-            deleteFile(oldBookmark.cover_image_url);
+            deleteFile(oldBookmark.cover_image_url); // Hapus gambar sampul lama
             dataToUpdate.cover_image_url = coverImage.path.replace(/\\/g, "/");
         }
 
+        // Logic to parse tasks
         let parsedTasks = [];
         if (typeof tasks === 'string') {
             try { parsedTasks = JSON.parse(tasks); } catch (e) { return res.status(400).send({ message: "Format data tugas tidak valid." });}
@@ -107,7 +115,7 @@ exports.updateBookmark = async (req, res) => {
         dataToUpdate.tasks = parsedTasks;
         
         const affectedRows = await Bookmark.updateById(bookmarkId, dataToUpdate);
-        if (affectedRows === 0) return res.status(404).send({ message: "Materi tidak ditemukan saat proses update." });
+        if (affectedRows === 0) return res.status(404).send({ message: "Tidak ada perubahan yang disimpan." });
 
         res.status(200).send({ message: "Materi berhasil diperbarui." });
     } catch (error) {
@@ -115,6 +123,7 @@ exports.updateBookmark = async (req, res) => {
         res.status(500).send({ message: "Gagal memperbarui materi di server." });
     }
 };
+
 
 // ... (Sisa controller tidak berubah)
 exports.getAllBookmarks = async (req, res) => {
@@ -157,7 +166,7 @@ exports.submitAnswers = async (req, res) => {
                 if (questionObj.type.includes('pilihan-ganda')) {
                     isCorrect = answerText.trim().toLowerCase() === (questionObj.correctAnswer || '').trim().toLowerCase();
                 } else {
-                    isCorrect = false; // Esai perlu dinilai manual
+                    isCorrect = false;
                 }
                 if(isCorrect) correctCount++;
             }
@@ -165,17 +174,9 @@ exports.submitAnswers = async (req, res) => {
         }
 
         const pointsAwarded = 600;
-        await Point.addPoints(
-            userId,
-            pointsAwarded,
-            'BOOKMARK_COMPLETION',
-            `Menyelesaikan materi bookmark: ${title}`
-        );
+        await Point.addPoints(userId, pointsAwarded, 'BOOKMARK_COMPLETION', `Menyelesaikan materi bookmark: ${title}`);
 
-        let responsePayload = {
-            message: `Jawaban berhasil dikumpulkan dan Anda mendapatkan ${pointsAwarded} poin!`,
-            pointsAwarded
-        };
+        let responsePayload = { message: `Jawaban berhasil dikumpulkan dan Anda mendapatkan ${pointsAwarded} poin!`, pointsAwarded };
 
         if (grading_type === 'otomatis') {
             const mcqCount = questions.filter(q => q.type.includes('pilihan-ganda')).length;
@@ -192,29 +193,7 @@ exports.submitAnswers = async (req, res) => {
     }
 };
 
-exports.getSubmissions = async (req, res) => {
-    try { res.status(200).json(await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId)); }
-    catch (error) { res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); }
-};
-
-exports.getSubmissionDetails = async (req, res) => {
-    try { res.status(200).json(await Bookmark.getSubmissionDetails(req.params.submissionId)); }
-    catch (error) { res.status(500).send({ message: "Gagal mengambil detail jawaban." }); }
-};
-
-exports.gradeSubmission = async (req, res) => {
-    const { submissionId } = req.params;
-    const { score, answers } = req.body;
-    try {
-        for (const ans of answers) {
-            await Bookmark.overrideAnswerCorrectness(ans.id, ans.is_correct);
-        }
-        await Bookmark.gradeSubmissionManually(submissionId, score);
-        res.status(200).send({ message: "Nilai berhasil disimpan." });
-    } catch (error) { res.status(500).send({ message: "Gagal menyimpan nilai." }); }
-};
-
-exports.getMySubmissions = async (req, res) => {
-    try { res.status(200).json(await Bookmark.findSubmissionsByUserId(req.userId)); }
-    catch (error) { res.status(500).send({ message: "Gagal mengambil riwayat pengerjaan." }); }
-};
+exports.getSubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); } };
+exports.getSubmissionDetails = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionDetails(req.params.submissionId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil detail jawaban." }); } };
+exports.gradeSubmission = async (req, res) => { const { submissionId } = req.params; const { score, answers } = req.body; try { for (const ans of answers) { await Bookmark.overrideAnswerCorrectness(ans.id, ans.is_correct); } await Bookmark.gradeSubmissionManually(submissionId, score); res.status(200).send({ message: "Nilai berhasil disimpan." }); } catch (error) { res.status(500).send({ message: "Gagal menyimpan nilai." }); } };
+exports.getMySubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.findSubmissionsByUserId(req.userId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil riwayat pengerjaan." }); } };
