@@ -25,6 +25,13 @@ module.exports = function (app) {
     
     app.delete(`${adminPrefix}/:bookmarkId`, [authJwt.verifyToken, authJwt.isGuru], controller.deleteBookmark);
     
+    // --- RUTE BARU UNTUK BANK SOAL ---
+    app.post(
+        `${adminPrefix}/:bookmarkId/add-from-bank`,
+        [authJwt.verifyToken, authJwt.isGuru],
+        controller.addQuestionsFromBank
+    );
+
     // Rute Nilai
     app.get(`${adminPrefix}/:bookmarkId/submissions`, [authJwt.verifyToken, authJwt.isGuru], controller.getSubmissions);
     app.get(`${adminPrefix}/submissions/:submissionId`, [authJwt.verifyToken, authJwt.isGuru], controller.getSubmissionDetails);

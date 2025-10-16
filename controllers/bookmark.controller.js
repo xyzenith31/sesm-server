@@ -187,6 +187,25 @@ exports.submitAnswers = async (req, res) => {
     }
 };
 
+// --- CONTROLLER BARU UNTUK BANK SOAL ---
+exports.addQuestionsFromBank = async (req, res) => {
+    const { bookmarkId } = req.params;
+    const { questionIds } = req.body;
+
+    if (!questionIds || !Array.isArray(questionIds) || questionIds.length === 0) {
+        return res.status(400).send({ message: "Daftar ID soal tidak valid." });
+    }
+
+    try {
+        const questionsAdded = await Bookmark.addQuestionsFromBank(bookmarkId, questionIds);
+        res.status(200).send({ message: `${questionsAdded} soal berhasil ditambahkan ke materi bookmark.` });
+    } catch (error) {
+        console.error("Add Questions from Bank to Bookmark Error:", error);
+        res.status(500).send({ message: "Terjadi kesalahan saat menambah soal dari bank." });
+    }
+};
+
+
 exports.getSubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); } };
 exports.getSubmissionDetails = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionDetails(req.params.submissionId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil detail jawaban." }); } };
 

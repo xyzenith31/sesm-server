@@ -176,5 +176,77 @@ Bookmark.findSubmissionDetailsForStudent = async (submissionId, userId) => {
     return rows;
 };
 
+// --- FUNGSI BARU UNTUK MENAMBAH SOAL DARI BANK SOAL MATERI ---
+Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
+    if (!questionIds || questionIds.length === 0) {
+        return 0;
+    }
+    const conn = await db.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // 1. Dapatkan bookmark yang ada, terutama kolom 'tasks'
+        const [bookmarks] = await conn.execute("SELECT tasks FROM bookmarks WHERE id = ?", [bookmarkId]);
+        if (bookmarks.length === 0) {
+            throw new Error(`Bookmark dengan ID '${bookmarkId}' tidak ditemukan.`);
+        }
+        
+        let existingTasks = [];
+        try {
+            existingTasks = JSON.parse(bookmarks[0].tasks) || [];
+        } catch (e) {
+            existingTasks = [];
+        }
+
+        const newTasks = [];
+        for (const questionId of questionIds) {
+            // 2. Ambil data soal asli dari tabel 'questions'
+            const [originalQuestions] = await conn.execute("SELECT * FROM questions WHERE id = ?", [questionId]);
+            if (originalQuestions.length === 0) {
+                console.warn(`Soal dengan ID ${questionId} tidak ditemukan, dilewati.`);
+                continue;
+            }
+            const originalQ = originalQuestions[0];
+
+            // 3. Format soal ke dalam format 'task'
+            const newTask = {
+                id: Date.now() + Math.random(),
+                type: originalQ.tipe_soal,
+                question: originalQ.pertanyaan,
+                essayAnswer: originalQ.jawaban_esai || '',
+                options: [],
+                correctAnswer: ''
+            };
+
+            // 4. Jika soal adalah pilihan ganda, ambil juga opsinya
+            if (originalQ.tipe_soal.includes('pilihan-ganda')) {
+                const [originalOptions] = await conn.execute("SELECT * FROM question_options WHERE question_id = ?", [questionId]);
+                newTask.options = originalOptions.map(opt => opt.opsi_jawaban);
+                const correctOpt = originalOptions.find(opt => opt.is_correct);
+                if (correctOpt) {
+                    newTask.correctAnswer = correctOpt.opsi_jawaban;
+                }
+            }
+            newTasks.push(newTask);
+        }
+
+        // 5. Gabungkan task lama dan baru, lalu update bookmark
+        const allTasks = [...existingTasks, ...newTasks];
+        await conn.execute(
+            "UPDATE bookmarks SET tasks = ? WHERE id = ?",
+            [JSON.stringify(allTasks), bookmarkId]
+        );
+        
+        await conn.commit();
+        return newTasks.length; // Mengembalikan jumlah soal yang berhasil ditambahkan
+
+    } catch (error) {
+        await conn.rollback();
+        throw error;
+    } finally {
+        conn.release();
+    }
+};
+
 
 module.exports = Bookmark;
