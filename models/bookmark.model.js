@@ -43,7 +43,8 @@ Bookmark.findAllWithTasks = async () => {
     const query = `
         SELECT 
             b.*,
-            u.nama as creator_name
+            u.nama as creator_name,
+            u.avatar as creator_avatar
         FROM bookmarks b
         JOIN users u ON b.creator_id = u.id
         ORDER BY b.created_at DESC
@@ -128,10 +129,10 @@ Bookmark.getSubmissionDetails = async (submissionId) => {
     return rows;
 };
 
-Bookmark.gradeSubmissionManually = async (submissionId, score) => {
+Bookmark.gradeSubmissionManually = async (submissionId, score, graderId) => {
     const [result] = await db.execute(
-        "UPDATE bookmark_submissions SET score = ?, status = 'dinilai' WHERE id = ?",
-        [score, submissionId]
+        "UPDATE bookmark_submissions SET score = ?, status = 'dinilai', grader_id = ? WHERE id = ?",
+        [score, graderId, submissionId]
     );
     return result.affectedRows;
 };
@@ -142,9 +143,19 @@ Bookmark.overrideAnswerCorrectness = async (answerId, isCorrect) => {
 
 Bookmark.findSubmissionsByUserId = async (userId) => {
     const query = `
-        SELECT bs.id, b.title, bs.score, bs.status, bs.submission_date as date
-        FROM bookmark_submissions bs JOIN bookmarks b ON bs.bookmark_id = b.id
-        WHERE bs.user_id = ? ORDER BY bs.submission_date DESC
+        SELECT 
+            bs.id, 
+            b.title, 
+            bs.score, 
+            bs.status, 
+            bs.submission_date as date,
+            grader.nama as grader_name,
+            grader.avatar as grader_avatar
+        FROM bookmark_submissions bs 
+        JOIN bookmarks b ON bs.bookmark_id = b.id
+        LEFT JOIN users grader ON bs.grader_id = grader.id
+        WHERE bs.user_id = ? 
+        ORDER BY bs.submission_date DESC
     `;
     const [rows] = await db.execute(query, [userId]);
     return rows;

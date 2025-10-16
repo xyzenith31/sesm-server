@@ -181,7 +181,7 @@ exports.submitAnswers = async (req, res) => {
         if (grading_type === 'otomatis') {
             const mcqCount = questions.filter(q => q.type.includes('pilihan-ganda')).length;
             score = mcqCount > 0 ? Math.round((correctCount / mcqCount) * 100) : 100;
-            await Bookmark.gradeSubmissionManually(submissionId, score);
+            await Bookmark.gradeSubmissionManually(submissionId, score, userId);
             responsePayload.score = score;
         }
 
@@ -195,5 +195,5 @@ exports.submitAnswers = async (req, res) => {
 
 exports.getSubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); } };
 exports.getSubmissionDetails = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionDetails(req.params.submissionId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil detail jawaban." }); } };
-exports.gradeSubmission = async (req, res) => { const { submissionId } = req.params; const { score, answers } = req.body; try { for (const ans of answers) { await Bookmark.overrideAnswerCorrectness(ans.id, ans.is_correct); } await Bookmark.gradeSubmissionManually(submissionId, score); res.status(200).send({ message: "Nilai berhasil disimpan." }); } catch (error) { res.status(500).send({ message: "Gagal menyimpan nilai." }); } };
+exports.gradeSubmission = async (req, res) => { const { submissionId } = req.params; const { score, answers } = req.body; try { for (const ans of answers) { await Bookmark.overrideAnswerCorrectness(ans.id, ans.is_correct); } await Bookmark.gradeSubmissionManually(submissionId, score, req.userId); res.status(200).send({ message: "Nilai berhasil disimpan." }); } catch (error) { res.status(500).send({ message: "Gagal menyimpan nilai." }); } };
 exports.getMySubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.findSubmissionsByUserId(req.userId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil riwayat pengerjaan." }); } };
