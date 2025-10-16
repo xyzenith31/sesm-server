@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const os = require('os'); // Tambahkan ini untuk mendapatkan info jaringan
+const os = require('os');
 require('dotenv').config();
 
 const app = express();
