@@ -4,8 +4,9 @@ const Materi = require('./materi.model.js');
 const Point = require('./point.model.js');
 const Quiz = require('./quiz.model.js');
 const Subject = require('./subject.model.js');
-const Diary = require('./diary.model.js'); // Tambahkan ini
-const Bookmark = require('./bookmark.model.js'); // Tambahkan ini jika diperlukan
+const Diary = require('./diary.model.js');
+const Bookmark = require('./bookmark.model.js');
+const Draft = require('./draft.model.js'); // Tambahkan ini
 
 module.exports = {
   User,
@@ -13,6 +14,7 @@ module.exports = {
   Point,
   Quiz,
   Subject,
-  Diary, // Tambahkan ini
-  Bookmark // Tambahkan ini jika diperlukan  
+  Diary,
+  Bookmark,
+  Draft, // Tambahkan ini
 };
