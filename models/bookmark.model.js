@@ -18,7 +18,7 @@ const deleteFile = (url) => {
 };
 
 Bookmark.create = async (data) => {
-    const { title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type, recommended_level } = data; // Tambahkan recommended_level
+    const { title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type, recommended_level } = data;
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
@@ -27,7 +27,7 @@ Bookmark.create = async (data) => {
             INSERT INTO bookmarks (title, description, type, url, subject, cover_image_url, creator_id, tasks, grading_type, recommended_level) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        const [result] = await conn.execute(query, [title, description, type, url, subject, cover_image_url, creator_id, tasksJson, grading_type, recommended_level]); // Tambahkan recommended_level
+        const [result] = await conn.execute(query, [title, description, type, url, subject, cover_image_url, creator_id, tasksJson, grading_type, recommended_level]);
         
         await conn.commit();
         return { id: result.insertId, ...data };
@@ -57,7 +57,7 @@ Bookmark.findAllWithTasks = async () => {
 };
 
 Bookmark.updateById = async (bookmarkId, data) => {
-    const { title, description, subject, tasks, grading_type, recommended_level } = data; // Tambahkan recommended_level
+    const { title, description, subject, tasks, grading_type, recommended_level } = data;
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
@@ -68,7 +68,7 @@ Bookmark.updateById = async (bookmarkId, data) => {
             SET title = ?, description = ?, subject = ?, tasks = ?, grading_type = ?, recommended_level = ?
             WHERE id = ?
         `;
-        const [result] = await conn.execute(query, [title, description, subject, tasksJson, grading_type, recommended_level, bookmarkId]); // Tambahkan recommended_level
+        const [result] = await conn.execute(query, [title, description, subject, tasksJson, grading_type, recommended_level, bookmarkId]);
         
         await conn.commit();
         return result.affectedRows;
@@ -93,7 +93,7 @@ Bookmark.deleteById = async (bookmarkId) => {
     return result.affectedRows;
 };
 
-// --- FUNGSI BARU UNTUK NILAI ---
+// --- FUNGSI UNTUK NILAI ---
 Bookmark.createSubmission = async (userId, bookmarkId) => {
     const [result] = await db.execute(
         "INSERT INTO bookmark_submissions (user_id, bookmark_id) VALUES (?, ?)",
@@ -123,7 +123,7 @@ Bookmark.getSubmissionsByBookmarkId = async (bookmarkId) => {
 
 Bookmark.getSubmissionDetails = async (submissionId) => {
     const [rows] = await db.execute(`
-        SELECT id, question_index, question_text, answer_text, is_correct
+        SELECT id, question_index, question_text, answer_text, is_correct, correction_text
         FROM bookmark_answers WHERE submission_id = ? ORDER BY question_index ASC
     `, [submissionId]);
     return rows;
@@ -137,9 +137,10 @@ Bookmark.gradeSubmissionManually = async (submissionId, score, graderId) => {
     return result.affectedRows;
 };
 
-Bookmark.overrideAnswerCorrectness = async (answerId, isCorrect) => {
-    await db.execute("UPDATE bookmark_answers SET is_correct = ? WHERE id = ?", [isCorrect, answerId]);
+Bookmark.updateAnswerDetails = async (answerId, { is_correct, correction_text }) => {
+    await db.execute("UPDATE bookmark_answers SET is_correct = ?, correction_text = ? WHERE id = ?", [is_correct, correction_text, answerId]);
 };
+
 
 Bookmark.findSubmissionsByUserId = async (userId) => {
     const query = `
@@ -160,5 +161,20 @@ Bookmark.findSubmissionsByUserId = async (userId) => {
     const [rows] = await db.execute(query, [userId]);
     return rows;
 };
+
+// Fungsi baru untuk mengambil detail pengerjaan siswa yang terverifikasi
+Bookmark.findSubmissionDetailsForStudent = async (submissionId, userId) => {
+    const [submissionOwner] = await db.execute("SELECT user_id FROM bookmark_submissions WHERE id = ?", [submissionId]);
+    if (submissionOwner.length === 0 || submissionOwner[0].user_id !== userId) {
+        throw new Error("Akses ditolak.");
+    }
+
+    const [rows] = await db.execute(`
+        SELECT id, question_index, question_text, answer_text, is_correct, correction_text
+        FROM bookmark_answers WHERE submission_id = ? ORDER BY question_index ASC
+    `, [submissionId]);
+    return rows;
+};
+
 
 module.exports = Bookmark;

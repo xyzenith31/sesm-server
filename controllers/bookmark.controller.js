@@ -69,7 +69,6 @@ exports.createBookmark = async (req, res) => {
     }
 };
 
-// --- CONTROLLER UPDATE DIPERBARUI TOTAL ---
 exports.updateBookmark = async (req, res) => {
     const { bookmarkId } = req.params;
     const { title, description, subject, tasks, grading_type, recommended_level, url_link } = req.body;
@@ -88,24 +87,21 @@ exports.updateBookmark = async (req, res) => {
         const mainFile = req.files?.mainFile?.[0];
         const coverImage = req.files?.coverImage?.[0];
         
-        // Logic to update main file or link
         if (mainFile) {
-            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url); // Hapus file lama jika ada
+            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url);
             dataToUpdate.url = mainFile.path.replace(/\\/g, "/");
             dataToUpdate.type = determineType(mainFile, null);
         } else if (url_link) {
-            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url); // Hapus file lama jika ada
+            if (oldBookmark.type !== 'video_link') deleteFile(oldBookmark.url);
             dataToUpdate.url = url_link;
             dataToUpdate.type = 'video_link';
         }
 
-        // Logic to update cover image
         if (coverImage) {
-            deleteFile(oldBookmark.cover_image_url); // Hapus gambar sampul lama
+            deleteFile(oldBookmark.cover_image_url);
             dataToUpdate.cover_image_url = coverImage.path.replace(/\\/g, "/");
         }
 
-        // Logic to parse tasks
         let parsedTasks = [];
         if (typeof tasks === 'string') {
             try { parsedTasks = JSON.parse(tasks); } catch (e) { return res.status(400).send({ message: "Format data tugas tidak valid." });}
@@ -124,8 +120,6 @@ exports.updateBookmark = async (req, res) => {
     }
 };
 
-
-// ... (Sisa controller tidak berubah)
 exports.getAllBookmarks = async (req, res) => {
     try {
         const bookmarks = await Bookmark.findAllWithTasks();
@@ -195,5 +189,36 @@ exports.submitAnswers = async (req, res) => {
 
 exports.getSubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); } };
 exports.getSubmissionDetails = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionDetails(req.params.submissionId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil detail jawaban." }); } };
-exports.gradeSubmission = async (req, res) => { const { submissionId } = req.params; const { score, answers } = req.body; try { for (const ans of answers) { await Bookmark.overrideAnswerCorrectness(ans.id, ans.is_correct); } await Bookmark.gradeSubmissionManually(submissionId, score, req.userId); res.status(200).send({ message: "Nilai berhasil disimpan." }); } catch (error) { res.status(500).send({ message: "Gagal menyimpan nilai." }); } };
+
+exports.gradeSubmission = async (req, res) => {
+    const { submissionId } = req.params;
+    const { score, answers } = req.body;
+    const graderId = req.userId; // Ambil ID guru yang sedang login
+    try {
+        for (const ans of answers) {
+            await Bookmark.updateAnswerDetails(ans.id, {
+                is_correct: ans.is_correct,
+                correction_text: ans.correction_text
+            });
+        }
+        await Bookmark.gradeSubmissionManually(submissionId, score, graderId);
+        res.status(200).send({ message: "Nilai berhasil disimpan." });
+    } catch (error) {
+        res.status(500).send({ message: "Gagal menyimpan nilai." });
+    }
+};
+
 exports.getMySubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.findSubmissionsByUserId(req.userId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil riwayat pengerjaan." }); } };
+
+// Controller baru untuk siswa
+exports.getStudentSubmissionDetails = async (req, res) => {
+    try {
+        const details = await Bookmark.findSubmissionDetailsForStudent(req.params.submissionId, req.userId);
+        res.status(200).json(details);
+    } catch (error) {
+        if (error.message === "Akses ditolak.") {
+            return res.status(403).send({ message: "Akses ditolak." });
+        }
+        res.status(500).send({ message: "Gagal mengambil detail pengerjaan." });
+    }
+};

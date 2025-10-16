@@ -13,6 +13,9 @@ module.exports = function (app) {
     app.get("/api/bookmarks", [authJwt.verifyToken], controller.getAllBookmarks);
     app.post("/api/bookmarks/:bookmarkId/submit", [authJwt.verifyToken], controller.submitAnswers);
     app.get("/api/bookmarks/my-submissions", [authJwt.verifyToken], controller.getMySubmissions);
+    // Rute baru untuk siswa melihat detail nilainya
+    app.get("/api/bookmarks/submissions/:submissionId", [authJwt.verifyToken], controller.getStudentSubmissionDetails);
+
 
     // --- RUTE GURU ---
     const adminPrefix = "/api/admin/bookmarks";
