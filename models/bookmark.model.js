@@ -112,7 +112,7 @@ Bookmark.saveStudentAnswer = async (submissionId, questionIndex, questionText, a
 Bookmark.getSubmissionsByBookmarkId = async (bookmarkId) => {
     const [rows] = await db.execute(`
         SELECT 
-            bs.id, u.nama as student_name, bs.submission_date, bs.score, bs.status
+            bs.id, u.nama as student_name, bs.submission_date, bs.score, bs.status, bs.bookmark_id
         FROM bookmark_submissions bs
         JOIN users u ON bs.user_id = u.id
         WHERE bs.bookmark_id = ?
@@ -138,9 +138,9 @@ Bookmark.gradeSubmissionManually = async (submissionId, score, graderId) => {
 };
 
 Bookmark.updateAnswerDetails = async (answerId, { is_correct, correction_text }) => {
-    await db.execute("UPDATE bookmark_answers SET is_correct = ?, correction_text = ? WHERE id = ?", [is_correct, correction_text, answerId]);
+    const finalIsCorrect = (is_correct === true || is_correct === false) ? is_correct : null;
+    await db.execute("UPDATE bookmark_answers SET is_correct = ?, correction_text = ? WHERE id = ?", [finalIsCorrect, correction_text, answerId]);
 };
-
 
 Bookmark.findSubmissionsByUserId = async (userId) => {
     const query = `
@@ -162,7 +162,6 @@ Bookmark.findSubmissionsByUserId = async (userId) => {
     return rows;
 };
 
-// Fungsi baru untuk mengambil detail pengerjaan siswa yang terverifikasi
 Bookmark.findSubmissionDetailsForStudent = async (submissionId, userId) => {
     const [submissionOwner] = await db.execute("SELECT user_id FROM bookmark_submissions WHERE id = ?", [submissionId]);
     if (submissionOwner.length === 0 || submissionOwner[0].user_id !== userId) {
@@ -176,7 +175,6 @@ Bookmark.findSubmissionDetailsForStudent = async (submissionId, userId) => {
     return rows;
 };
 
-// --- FUNGSI BARU UNTUK MENAMBAH SOAL DARI BANK SOAL MATERI ---
 Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
     if (!questionIds || questionIds.length === 0) {
         return 0;
@@ -185,7 +183,6 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
     try {
         await conn.beginTransaction();
 
-        // 1. Dapatkan bookmark yang ada, terutama kolom 'tasks'
         const [bookmarks] = await conn.execute("SELECT tasks FROM bookmarks WHERE id = ?", [bookmarkId]);
         if (bookmarks.length === 0) {
             throw new Error(`Bookmark dengan ID '${bookmarkId}' tidak ditemukan.`);
@@ -200,7 +197,6 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
 
         const newTasks = [];
         for (const questionId of questionIds) {
-            // 2. Ambil data soal asli dari tabel 'questions'
             const [originalQuestions] = await conn.execute("SELECT * FROM questions WHERE id = ?", [questionId]);
             if (originalQuestions.length === 0) {
                 console.warn(`Soal dengan ID ${questionId} tidak ditemukan, dilewati.`);
@@ -208,7 +204,6 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
             }
             const originalQ = originalQuestions[0];
 
-            // 3. Format soal ke dalam format 'task'
             const newTask = {
                 id: Date.now() + Math.random(),
                 type: originalQ.tipe_soal,
@@ -218,7 +213,6 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
                 correctAnswer: ''
             };
 
-            // 4. Jika soal adalah pilihan ganda, ambil juga opsinya
             if (originalQ.tipe_soal.includes('pilihan-ganda')) {
                 const [originalOptions] = await conn.execute("SELECT * FROM question_options WHERE question_id = ?", [questionId]);
                 newTask.options = originalOptions.map(opt => opt.opsi_jawaban);
@@ -230,7 +224,6 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
             newTasks.push(newTask);
         }
 
-        // 5. Gabungkan task lama dan baru, lalu update bookmark
         const allTasks = [...existingTasks, ...newTasks];
         await conn.execute(
             "UPDATE bookmarks SET tasks = ? WHERE id = ?",
@@ -238,7 +231,7 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
         );
         
         await conn.commit();
-        return newTasks.length; // Mengembalikan jumlah soal yang berhasil ditambahkan
+        return newTasks.length;
 
     } catch (error) {
         await conn.rollback();
@@ -247,6 +240,5 @@ Bookmark.addQuestionsFromBank = async (bookmarkId, questionIds) => {
         conn.release();
     }
 };
-
 
 module.exports = Bookmark;

@@ -39,7 +39,6 @@ exports.createBookmark = async (req, res) => {
     const mainFile = req.files?.mainFile?.[0];
     const coverImage = req.files?.coverImage?.[0];
 
-    // --- VALIDASI KETAT ---
     if (!title || !subject) return res.status(400).send({ message: "Judul dan Mapel wajib diisi." });
     if (!mainFile && !url_link) return res.status(400).send({ message: "Harus ada File Utama atau Link Video yang diisi." });
 
@@ -187,7 +186,6 @@ exports.submitAnswers = async (req, res) => {
     }
 };
 
-// --- CONTROLLER BARU UNTUK BANK SOAL ---
 exports.addQuestionsFromBank = async (req, res) => {
     const { bookmarkId } = req.params;
     const { questionIds } = req.body;
@@ -205,31 +203,47 @@ exports.addQuestionsFromBank = async (req, res) => {
     }
 };
 
+exports.getSubmissions = async (req, res) => { 
+    try { 
+        const submissions = await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId);
+        res.status(200).json(submissions); 
+    } catch (error) { 
+        res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); 
+    } 
+};
 
-exports.getSubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionsByBookmarkId(req.params.bookmarkId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil data pengerjaan." }); } };
-exports.getSubmissionDetails = async (req, res) => { try { res.status(200).json(await Bookmark.getSubmissionDetails(req.params.submissionId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil detail jawaban." }); } };
+exports.getSubmissionDetails = async (req, res) => { 
+    try { 
+        const details = await Bookmark.getSubmissionDetails(req.params.submissionId);
+        res.status(200).json(details); 
+    } catch (error) { 
+        res.status(500).send({ message: "Gagal mengambil detail jawaban." }); 
+    } 
+};
 
 exports.gradeSubmission = async (req, res) => {
     const { submissionId } = req.params;
     const { score, answers } = req.body;
-    const graderId = req.userId; // Ambil ID guru yang sedang login
+    const graderId = req.userId;
     try {
-        for (const ans of answers) {
-            await Bookmark.updateAnswerDetails(ans.id, {
-                is_correct: ans.is_correct,
-                correction_text: ans.correction_text
-            });
+        if (answers && Array.isArray(answers)) {
+            for (const ans of answers) {
+                await Bookmark.updateAnswerDetails(ans.id, {
+                    is_correct: ans.is_correct,
+                    correction_text: ans.correction_text
+                });
+            }
         }
         await Bookmark.gradeSubmissionManually(submissionId, score, graderId);
         res.status(200).send({ message: "Nilai berhasil disimpan." });
     } catch (error) {
+        console.error("GRADE SUBMISSION ERROR:", error);
         res.status(500).send({ message: "Gagal menyimpan nilai." });
     }
 };
 
 exports.getMySubmissions = async (req, res) => { try { res.status(200).json(await Bookmark.findSubmissionsByUserId(req.userId)); } catch (error) { res.status(500).send({ message: "Gagal mengambil riwayat pengerjaan." }); } };
 
-// Controller baru untuk siswa
 exports.getStudentSubmissionDetails = async (req, res) => {
     try {
         const details = await Bookmark.findSubmissionDetailsForStudent(req.params.submissionId, req.userId);
