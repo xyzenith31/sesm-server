@@ -289,3 +289,54 @@ exports.getMateriSiswa = async (req, res) => {
         res.status(500).send({ message: error.message });
     }
 };
+
+// --- FUNGSI BARU UNTUK SISWA MELIHAT DETAIL ---
+exports.getStudentSubmissionDetails = async (req, res) => {
+    const { submissionId } = req.params;
+    const userId = req.userId;
+    try {
+        // Pertama, verifikasi pengguna adalah pemilik pengerjaan ini
+        const submission = await Materi.findSubmissionByIdForStudent(submissionId, userId);
+        if (!submission) {
+            return res.status(403).send({ message: "Akses ditolak." });
+        }
+        // Jika lolos verifikasi, ambil detail jawabannya
+        const details = await Materi.getSubmissionDetails(submissionId);
+        res.status(200).json(details);
+    } catch (error) {
+        res.status(500).send({ message: "Gagal mengambil detail pengerjaan." });
+    }
+};
+
+exports.gradeSubmission = async (req, res) => {
+    const { submissionId } = req.params;
+    // Ambil 'score' dan 'answers' dari body
+    const { score, answers } = req.body;
+
+    if (score === undefined || score === null || isNaN(score) || score < 0 || score > 100) {
+        return res.status(400).send({ message: "Nilai dibutuhkan dan harus antara 0-100." });
+    }
+
+    try {
+        // 1. Simpan umpan balik untuk setiap jawaban jika ada
+        if (answers && Array.isArray(answers)) {
+            for (const ans of answers) {
+                if (ans.answerId && ans.correction_text !== undefined) {
+                    await Materi.updateAnswerDetails(ans.answerId, { correction_text: ans.correction_text });
+                }
+            }
+        }
+        
+        // 2. Simpan nilai akhir
+        const affectedRows = await Materi.gradeSubmissionManually(submissionId, parseInt(score));
+        if (affectedRows === 0) {
+            return res.status(404).send({ message: "Submission tidak ditemukan." });
+        }
+        
+        res.status(200).send({ message: "Nilai dan umpan balik berhasil disimpan." });
+
+    } catch (error) {
+        console.error("Grade Submission Error:", error);
+        res.status(500).send({ message: "Gagal menyimpan nilai: " + error.message });
+    }
+};

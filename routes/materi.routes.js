@@ -29,6 +29,7 @@ module.exports = function (app) {
   app.get(`${adminPrefix}/materi/:materiKey`, [authJwt.verifyToken, authJwt.isGuru], materiController.getDetailMateriForAdmin);
   app.post(`${adminPrefix}/materi/chapters`, [authJwt.verifyToken, authJwt.isGuru], materiController.addChapter);
   app.post(`${adminPrefix}/materi/:materiKey/questions`, [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)], materiController.addQuestion);
+  app.get("/api/materi/submission/:submissionId", [authJwt.verifyToken], materiController.getStudentSubmissionDetails);
   
   // --- RUTE EDIT & HAPUS SOAL ---
   app.put(`${adminPrefix}/materi/questions/:questionId`, [authJwt.verifyToken, authJwt.isGuru, upload.array('media', 5)], materiController.updateQuestion);

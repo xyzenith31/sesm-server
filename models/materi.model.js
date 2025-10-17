@@ -14,7 +14,6 @@ Materi.addQuestionsFromBankToChapter = async (materiKey, questionIds) => {
     try {
         await conn.beginTransaction();
 
-        // 1. Dapatkan chapter_id dari materiKey
         const [chapters] = await conn.execute("SELECT id FROM chapters WHERE materiKey = ?", [materiKey]);
         if (chapters.length === 0) {
             throw new Error(`Materi dengan key '${materiKey}' tidak ditemukan.`);
@@ -23,7 +22,6 @@ Materi.addQuestionsFromBankToChapter = async (materiKey, questionIds) => {
 
         let questionsAdded = 0;
         for (const questionId of questionIds) {
-            // 2. Ambil data soal asli dari tabel 'questions'
             const [originalQuestions] = await conn.execute("SELECT * FROM questions WHERE id = ?", [questionId]);
             if (originalQuestions.length === 0) {
                 console.warn(`Soal dengan ID ${questionId} tidak ditemukan di bank soal, dilewati.`);
@@ -31,14 +29,12 @@ Materi.addQuestionsFromBankToChapter = async (materiKey, questionIds) => {
             }
             const originalQ = originalQuestions[0];
 
-            // 3. Masukkan (duplikasi) soal ke chapter tujuan
             const [newQResult] = await conn.execute(
                 "INSERT INTO questions (pertanyaan, tipe_soal, jawaban_esai, chapter_id, media_urls) VALUES (?, ?, ?, ?, ?)",
                 [originalQ.pertanyaan, originalQ.tipe_soal, originalQ.jawaban_esai, chapterId, originalQ.media_urls]
             );
             const newQuestionId = newQResult.insertId;
 
-            // 4. Jika soal adalah pilihan ganda, duplikasi juga opsinya
             if (originalQ.tipe_soal.includes('pilihan-ganda')) {
                 const [originalOptions] = await conn.execute("SELECT * FROM question_options WHERE question_id = ?", [questionId]);
                 for (const opt of originalOptions) {
@@ -61,37 +57,32 @@ Materi.addQuestionsFromBankToChapter = async (materiKey, questionIds) => {
     }
 };
 
-
 // --- FUNGSI BARU UNTUK UPDATE PENGATURAN ---
 Materi.updateChapterSettings = async (chapterId, settings) => {
     const fields = [];
     const values = [];
 
-    // Membuat query dinamis berdasarkan data yang dikirim
     const validSettings = [
         'setting_penalty_on_wrong',
         'setting_randomize_questions',
         'setting_show_correct_answers',
         'setting_time_limit_minutes',
         'setting_require_all_answers',
-        'setting_strict_zero_on_wrong', // Fitur baru
-        'setting_fail_on_any_wrong'     // Fitur baru
+        'setting_strict_zero_on_wrong',
+        'setting_fail_on_any_wrong'
     ];
 
     for (const key in settings) {
         if (validSettings.includes(key)) {
             fields.push(`${key} = ?`);
-            // Pastikan null dikirim jika string kosong untuk batas waktu
             if (key === 'setting_time_limit_minutes' && (settings[key] === '' || settings[key] === null)) {
                 values.push(null);
             } else {
-                 // Konversi boolean ke 1/0 untuk database
                 const valueToSave = typeof settings[key] === 'boolean' ? (settings[key] ? 1 : 0) : settings[key];
                 values.push(valueToSave);
             }
         }
     }
-
 
     if (fields.length === 0) {
         return { affectedRows: 0 };
@@ -103,7 +94,6 @@ Materi.updateChapterSettings = async (chapterId, settings) => {
     const [result] = await db.execute(query, values);
     return result;
 };
-
 
 // --- FUNGSI LAMA YANG DIPERBARUI UNTUK MEMUAT DATA PENGATURAN ---
 Materi.getAdminDashboardData = async (jenjang, kelas) => {
@@ -153,7 +143,6 @@ Materi.getAdminDashboardData = async (jenjang, kelas) => {
                 materiKey: row.materiKey,
                 grading_mode: row.grading_mode,
                 questionCount: row.jumlah_soal,
-                // Tambahkan data settings ke response
                 settings: {
                     setting_penalty_on_wrong: !!row.setting_penalty_on_wrong,
                     setting_randomize_questions: !!row.setting_randomize_questions,
@@ -179,12 +168,9 @@ Materi.updateQuestion = async (questionId, questionData) => {
             "UPDATE questions SET pertanyaan = ?, tipe_soal = ?, jawaban_esai = ?, media_urls = ? WHERE id = ?",
             [question, type, essayAnswer || null, mediaUrlsJson, questionId]
         );
-        // Hapus opsi lama hanya jika tipe soal masih atau menjadi pilihan ganda
         if (type.startsWith('pilihan-ganda') && options) {
             await conn.execute("DELETE FROM question_options WHERE question_id = ?", [questionId]);
-            // Tambahkan opsi baru
             for (const opt of options) {
-                // Pastikan opt adalah string sebelum memanggil trim()
                 const optionText = typeof opt === 'string' ? opt.trim() : '';
                 const isCorrect = optionText === (correctAnswer || '').trim();
                 await conn.execute("INSERT INTO question_options (opsi_jawaban, is_correct, question_id) VALUES (?, ?, ?)",
@@ -192,7 +178,6 @@ Materi.updateQuestion = async (questionId, questionData) => {
                 );
             }
         } else {
-             // Jika tipe soal bukan lagi pilihan ganda, hapus semua opsi terkait
              await conn.execute("DELETE FROM question_options WHERE question_id = ?", [questionId]);
         }
         await conn.commit();
@@ -204,7 +189,6 @@ Materi.updateQuestion = async (questionId, questionData) => {
         conn.release();
     }
 };
-
 
 Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
     let query = `
@@ -232,7 +216,6 @@ Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
 };
 
 Materi.findChapterByMateriKey = async (materiKey) => {
-    // Ambil juga setting dari chapter
     const [rows] = await db.execute(`
         SELECT *, id as chapter_id
         FROM chapters
@@ -255,14 +238,12 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
     `;
     const [questions] = await db.execute(query, [materiKey]);
     for (const q of questions) {
-        // Parse media_urls
         if (q.media_urls) {
             try { q.media_urls = JSON.parse(q.media_urls); } catch (e) { q.media_urls = []; console.error(`Failed to parse media_urls for question ${q.id}: ${q.media_urls}`); }
         } else {
             q.media_urls = [];
         }
 
-        // Ambil opsi dan jawaban benar jika pilihan ganda
         if (q.tipe_soal.includes('pilihan-ganda')) {
             const [options] = await db.execute(
                 "SELECT opsi_jawaban, is_correct FROM question_options WHERE question_id = ?",
@@ -272,14 +253,12 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
             const correctOption = options.find(opt => opt.is_correct);
             q.correctAnswer = correctOption ? correctOption.opsi_jawaban : null;
         } else {
-            // Jika bukan PG, pastikan tidak ada properti options dan correctAnswer
             delete q.options;
             delete q.correctAnswer;
         }
     }
     return questions;
 };
-
 
 Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel) => {
     let query = `
@@ -303,7 +282,6 @@ Materi.createChapter = async (judul, subjectId) => {
     const [subjects] = await db.execute("SELECT jenjang, kelas, nama_mapel FROM subjects WHERE id = ?", [subjectId]);
     if (subjects.length === 0) throw new Error("Subject ID tidak ditemukan.");
     const { jenjang, kelas, nama_mapel } = subjects[0];
-    // Buat materiKey yang lebih robust
     const safeMapelName = nama_mapel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const timestamp = Date.now();
     const materiKey = `${jenjang.toLowerCase()}${kelas || ''}-${safeMapelName}-${timestamp}`;
@@ -312,7 +290,7 @@ Materi.createChapter = async (judul, subjectId) => {
         "INSERT INTO chapters (judul, materiKey, subject_id) VALUES (?, ?, ?)",
         [judul, materiKey, subjectId]
     );
-    return { id: result.insertId, judul, materiKey, subjectId }; // Kembalikan subjectId juga
+    return { id: result.insertId, judul, materiKey, subjectId };
 };
 
 Materi.createQuestion = async (materiKey, questionData) => {
@@ -328,7 +306,6 @@ Materi.createQuestion = async (materiKey, questionData) => {
     const questionId = result.insertId;
     if (type.startsWith('pilihan-ganda') && options && Array.isArray(options)) {
         for (const opt of options) {
-             // Pastikan opt adalah string sebelum memanggil trim()
              const optionText = typeof opt === 'string' ? opt.trim() : '';
              const isCorrect = optionText === (correctAnswer || '').trim();
             await db.execute(
@@ -340,9 +317,7 @@ Materi.createQuestion = async (materiKey, questionData) => {
     return { id: questionId, ...questionData };
 };
 
-
 Materi.deleteChapter = async (materiKey) => {
-    // Tambahkan logika penghapusan soal terkait sebelum menghapus chapter
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
@@ -352,12 +327,10 @@ Materi.deleteChapter = async (materiKey) => {
             const chapterId = chapters[0].id;
             const [questions] = await conn.execute("SELECT id FROM questions WHERE chapter_id = ?", [chapterId]);
             for (const q of questions) {
-                // Gunakan fungsi deleteQuestion yang sudah ada (yang juga menghapus file)
-                await Materi.deleteQuestion(q.id); // Perlu pastikan fungsi ini tidak pakai transaksi terpisah
+                await Materi.deleteQuestion(q.id);
             }
         }
 
-        // Hapus chapter setelah soalnya dihapus
         const [result] = await conn.execute("DELETE FROM chapters WHERE materiKey = ?", [materiKey]);
 
         await conn.commit();
@@ -365,15 +338,13 @@ Materi.deleteChapter = async (materiKey) => {
     } catch (error) {
         await conn.rollback();
         console.error("Error deleting chapter and related questions:", error);
-        throw error; // Lemparkan error agar controller bisa menangani
+        throw error;
     } finally {
         conn.release();
     }
 };
 
-
 Materi.deleteQuestion = async (questionId) => {
-    // Hapus file terkait dulu
     const [rows] = await db.execute("SELECT media_urls FROM questions WHERE id = ?", [questionId]);
     if (rows.length > 0 && rows[0].media_urls) {
         try {
@@ -382,7 +353,7 @@ Materi.deleteQuestion = async (questionId) => {
                 if (item.type === 'file' && item.url) {
                     const filePath = path.join(__dirname, '..', item.url);
                     if (fs.existsSync(filePath)) {
-                        fs.unlink(filePath, (err) => { // Gunakan unlink async
+                        fs.unlink(filePath, (err) => {
                             if (err) console.error(`Async unlink failed for ${filePath}:`, err);
                         });
                     }
@@ -392,11 +363,9 @@ Materi.deleteQuestion = async (questionId) => {
             console.error("Gagal memproses media_urls saat menghapus:", err);
         }
     }
-    // Hapus dari database (opsi akan terhapus otomatis karena ON DELETE CASCADE)
     const [result] = await db.execute("DELETE FROM questions WHERE id = ?", [questionId]);
     return result.affectedRows;
 };
-
 
 Materi.updateGradingMode = async (chapterId, mode) => {
     const [result] = await db.execute(
@@ -417,10 +386,9 @@ Materi.createSubmission = async (userId, chapterId, score, isSystemGraded, statu
 Materi.saveStudentAnswer = async (submissionId, questionId, answerText, isCorrect) => {
     await db.execute(
         "INSERT INTO student_answers (submission_id, question_id, answer_text, is_correct) VALUES (?, ?, ?, ?)",
-        [submissionId, questionId, answerText, isCorrect] // isCorrect bisa null
+        [submissionId, questionId, answerText, isCorrect]
     );
 };
-
 
 Materi.getAllSubmissionsForChapter = async (chapterId) => {
     const [rows] = await db.execute(`
@@ -449,20 +417,27 @@ Materi.getSubmissionDetails = async (submissionId) => {
             sa.id as answerId,
             sa.answer_text,
             sa.is_correct,
+            sa.correction_text,
             q.jawaban_esai AS correct_essay,
             (SELECT qo.opsi_jawaban FROM question_options qo WHERE qo.question_id = q.id AND qo.is_correct = 1 LIMIT 1) AS correct_mcq
         FROM student_answers sa
         JOIN questions q ON sa.question_id = q.id
         WHERE sa.submission_id = ?
-        ORDER BY q.id ASC -- Urutkan berdasarkan ID soal
+        ORDER BY q.id ASC
     `, [submissionId]);
-    // Konversi is_correct ke boolean jika tidak null
     return rows.map(row => ({
         ...row,
         is_correct: row.is_correct === null ? null : !!row.is_correct
     }));
 };
 
+Materi.updateAnswerDetails = async (answerId, { correction_text }) => {
+    const [result] = await db.execute(
+        "UPDATE student_answers SET correction_text = ? WHERE id = ?",
+        [correction_text, answerId]
+    );
+    return result.affectedRows;
+};
 
 Materi.gradeSubmissionManually = async (submissionId, score) => {
     // Hanya update skor dan ubah status menjadi 'dinilai'
@@ -526,6 +501,15 @@ Materi.recalculateScore = async (submissionId) => {
     await db.execute("UPDATE student_submissions SET score = ? WHERE id = ?", [newScore, submissionId]);
 
     return newScore; // Kembalikan skor baru
+};
+
+// Fungsi baru untuk verifikasi kepemilikan submission
+Materi.findSubmissionByIdForStudent = async (submissionId, userId) => {
+    const [rows] = await db.execute(
+        "SELECT * FROM student_submissions WHERE id = ? AND user_id = ?",
+        [submissionId, userId]
+    );
+    return rows[0];
 };
 
 module.exports = Materi;

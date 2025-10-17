@@ -40,50 +40,60 @@ exports.getSubmissionDetails = async (req, res) => {
     }
 };
 
-// Memberikan nilai manual untuk pertama kali atau mengubah nilai
+// --- ✅ FUNGSI YANG DIPERBARUI TOTAL ---
 exports.gradeSubmission = async (req, res) => {
     const { submissionId } = req.params;
-    const { score } = req.body;
+    // Ambil 'score' dan 'answers' (umpan balik) dari body
+    const { score, answers } = req.body;
 
-    // Validasi skor
     if (score === undefined || score === null || isNaN(score) || score < 0 || score > 100) {
         return res.status(400).send({ message: "Nilai dibutuhkan dan harus antara 0-100." });
     }
 
     try {
-        const affectedRows = await Materi.gradeSubmissionManually(submissionId, parseInt(score)); // Pastikan integer
+        // 1. Simpan umpan balik untuk setiap jawaban jika ada
+        if (answers && Array.isArray(answers)) {
+            for (const ans of answers) {
+                // Pastikan ada answerId dan correction_text untuk diupdate
+                if (ans.answerId && ans.correction_text !== undefined) {
+                    await Materi.updateAnswerDetails(ans.answerId, { correction_text: ans.correction_text });
+                }
+            }
+        }
+        
+        // 2. Simpan nilai akhir
+        const affectedRows = await Materi.gradeSubmissionManually(submissionId, parseInt(score));
         if (affectedRows === 0) {
             return res.status(404).send({ message: "Submission tidak ditemukan." });
         }
-        res.status(200).send({ message: "Nilai berhasil disimpan." });
+        
+        res.status(200).send({ message: "Nilai dan umpan balik berhasil disimpan." });
+
     } catch (error) {
         console.error("Grade Submission Error:", error);
         res.status(500).send({ message: "Gagal menyimpan nilai: " + error.message });
     }
 };
 
+
 // --- CONTROLLER DIPERBAIKI: OVERRIDE JAWABAN ---
 exports.overrideAnswer = async (req, res) => {
     const { answerId } = req.params;
-    const { isCorrect } = req.body; // isCorrect harus boolean (true/false)
+    const { isCorrect } = req.body;
 
-    // Validasi input
     if (typeof isCorrect !== 'boolean') {
         return res.status(400).send({ message: "Status kebenaran (isCorrect) harus true atau false." });
     }
 
     try {
-        // Cukup ubah status jawaban saja
         const affectedRows = await Materi.overrideAnswerCorrectness(answerId, isCorrect);
 
         if (affectedRows === 0) {
             return res.status(404).send({ message: "Jawaban tidak ditemukan atau gagal diubah." });
         }
-
-        // Tidak perlu hitung ulang skor di sini, biarkan guru input manual
+        
         res.status(200).send({
             message: "Status jawaban berhasil diubah. Jangan lupa simpan nilai akhir jika diperlukan.",
-            // Kirim status baru untuk update UI jika perlu
             newStatus: isCorrect
         });
     } catch (error) {
