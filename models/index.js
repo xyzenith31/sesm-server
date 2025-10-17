@@ -7,8 +7,9 @@ const Subject = require('./subject.model.js');
 const Diary = require('./diary.model.js');
 const Bookmark = require('./bookmark.model.js');
 const Draft = require('./draft.model.js');
-const WritingProject = require('./writing.model.js'); // Tambahkan ini
-const DrawingProject = require('./drawing.model.js'); // Tambahkan ini
+const WritingProject = require('./writing.model.js');
+const DrawingProject = require('./drawing.model.js');
+const InteractiveStory = require('./interactivestory.model.js'); // Tambahkan ini
 
 module.exports = {
   User,
@@ -19,6 +20,7 @@ module.exports = {
   Diary,
   Bookmark,
   Draft,
-  WritingProject, // Tambahkan ini
-  DrawingProject, // Tambahkan ini
+  WritingProject,
+  DrawingProject,
+  InteractiveStory, // Tambahkan ini
 };

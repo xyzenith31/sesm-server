@@ -9,8 +9,9 @@ const pointRoutes = require('./point.routes.js');
 const diaryRoutes = require('./diary.routes.js');
 const bookmarkRoutes = require('./bookmark.routes.js');
 const draftRoutes = require('./draft.routes.js');
-const writingRoutes = require('./writing.routes.js'); // Tambahkan ini
-const drawingRoutes = require('./drawing.routes.js'); // Tambahkan ini
+const writingRoutes = require('./writing.routes.js');
+const drawingRoutes = require('./drawing.routes.js');
+const interactiveStoryRoutes = require('./interactivestory.routes.js'); // Tambahkan ini
 
 module.exports = function(app) {
   authRoutes(app);
@@ -23,6 +24,7 @@ module.exports = function(app) {
   diaryRoutes(app);
   bookmarkRoutes(app);
   draftRoutes(app);
-  writingRoutes(app); // Tambahkan ini
-  drawingRoutes(app); // Tambahkan ini
+  writingRoutes(app);
+  drawingRoutes(app);
+  interactiveStoryRoutes(app); // Tambahkan ini
 };
