@@ -25,7 +25,7 @@ exports.getHistory = async (req, res) => {
     }
 };
 
-// --- CONTROLLER BARU ---
+// Controller untuk riwayat kuis
 exports.getQuizHistory = async (req, res) => {
     const userId = req.userId;
     try {
@@ -36,7 +36,7 @@ exports.getQuizHistory = async (req, res) => {
     }
 };
 
-// --- CONTROLLER BARU UNTUK RIWAYAT MATERI ---
+// Controller untuk riwayat materi per mapel
 exports.getSubjectHistory = async (req, res) => {
     const userId = req.userId;
     const { subjectName } = req.params;
@@ -47,7 +47,6 @@ exports.getSubjectHistory = async (req, res) => {
         res.status(500).send({ message: error.message });
     }
 };
-
 
 /**
  * PENTING: Controller ini sebaiknya TIDAK diekspos sebagai route publik.

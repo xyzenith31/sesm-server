@@ -11,7 +11,10 @@ exports.updateGradingMode = async (req, res) => {
     }
 
     try {
-        await Materi.updateGradingMode(chapterId, mode);
+        const affectedRows = await Materi.updateGradingMode(chapterId, mode);
+        if (affectedRows === 0) {
+            return res.status(404).send({ message: "Materi tidak ditemukan." });
+        }
         res.status(200).send({ message: `Mode penilaian berhasil diubah ke ${mode}.` });
     } catch (error) {
         res.status(500).send({ message: error.message });
@@ -40,10 +43,9 @@ exports.getSubmissionDetails = async (req, res) => {
     }
 };
 
-// --- ✅ FUNGSI YANG DIPERBARUI TOTAL ---
+// Fungsi untuk menyimpan nilai dan umpan balik
 exports.gradeSubmission = async (req, res) => {
     const { submissionId } = req.params;
-    // Ambil 'score' dan 'answers' (umpan balik) dari body
     const { score, answers } = req.body;
 
     if (score === undefined || score === null || isNaN(score) || score < 0 || score > 100) {
@@ -51,17 +53,14 @@ exports.gradeSubmission = async (req, res) => {
     }
 
     try {
-        // 1. Simpan umpan balik untuk setiap jawaban jika ada
         if (answers && Array.isArray(answers)) {
             for (const ans of answers) {
-                // Pastikan ada answerId dan correction_text untuk diupdate
                 if (ans.answerId && ans.correction_text !== undefined) {
                     await Materi.updateAnswerDetails(ans.answerId, { correction_text: ans.correction_text });
                 }
             }
         }
         
-        // 2. Simpan nilai akhir
         const affectedRows = await Materi.gradeSubmissionManually(submissionId, parseInt(score));
         if (affectedRows === 0) {
             return res.status(404).send({ message: "Submission tidak ditemukan." });
@@ -75,8 +74,7 @@ exports.gradeSubmission = async (req, res) => {
     }
 };
 
-
-// --- CONTROLLER DIPERBAIKI: OVERRIDE JAWABAN ---
+// Fungsi untuk override jawaban benar/salah
 exports.overrideAnswer = async (req, res) => {
     const { answerId } = req.params;
     const { isCorrect } = req.body;

@@ -27,21 +27,17 @@ module.exports = function(app) {
         controller.getHistory
     );
     
-    // --- RUTE BARU UNTUK RIWAYAT KUIS ---
+    // Rute untuk riwayat kuis
     app.get(
         `${prefix}/quiz-history`,
         [authJwt.verifyToken],
         controller.getQuizHistory
     );
 
-    // --- RUTE BARU UNTUK RIWAYAT MATERI PER MAPEL ---
+    // Rute untuk riwayat materi per mapel
     app.get(
         `${prefix}/subject-history/:subjectName`,
         [authJwt.verifyToken],
         controller.getSubjectHistory
     );
-    
-    // CATATAN: Endpoint untuk MENAMBAHKAN poin sengaja tidak dibuat
-    // karena alasan keamanan. Penambahan poin harus dipicu dari backend
-    // setelah sebuah aksi divalidasi (misal: setelah menyelesaikan kuis).
-};  
+};

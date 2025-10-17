@@ -5,10 +5,10 @@ const userRoutes = require('./user.routes.js');
 const materiRoutes = require('./materi.routes.js');
 const nilaiRoutes = require('./nilai.routes.js');
 const quizRoutes = require('./quiz.routes.js');
-const pointRoutes = require('./point.routes.js');
+const pointRoutes = require('./point.routes.js'); // ✅ Pastikan ini ada
 const diaryRoutes = require('./diary.routes.js');
 const bookmarkRoutes = require('./bookmark.routes.js');
-const draftRoutes = require('./draft.routes.js'); // Tambahkan ini
+const draftRoutes = require('./draft.routes.js');
 
 module.exports = function(app) {
   authRoutes(app);
@@ -17,8 +17,8 @@ module.exports = function(app) {
   materiRoutes(app);
   nilaiRoutes(app);
   quizRoutes(app);
-  pointRoutes(app);
+  pointRoutes(app); // ✅ Pastikan fungsi ini dipanggil
   diaryRoutes(app);
   bookmarkRoutes(app);
-  draftRoutes(app); // Tambahkan ini
+  draftRoutes(app);
 };
