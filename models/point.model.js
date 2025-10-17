@@ -5,36 +5,22 @@ const Point = {};
 
 /**
  * Menambahkan poin untuk user dan mencatatnya ke riwayat.
- * Fungsi ini menggunakan transaksi untuk memastikan integritas data.
- * @param {number} userId - ID dari user yang menerima poin.
- * @param {number} points - Jumlah poin yang ditambahkan.
- * @param {string} activityType - Jenis aktivitas (e.g., 'QUIZ_COMPLETION').
- * @param {string} activityDetails - Deskripsi singkat aktivitas.
- * @returns {Promise<number>} - Mengembalikan total poin baru dari user.
  */
 Point.addPoints = async (userId, points, activityType, activityDetails) => {
     const conn = await db.getConnection();
     try {
         await conn.beginTransaction();
-
-        // 1. Catat ke tabel points_history
         await conn.execute(
-            "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details) VALUES (?, ?, ?, ?)",
+            "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details, created_at) VALUES (?, ?, ?, ?, NOW())",
             [userId, points, activityType, activityDetails]
         );
-
-        // 2. Update total poin di tabel users
         await conn.execute(
             "UPDATE users SET points = points + ? WHERE id = ?",
             [points, userId]
         );
-
         await conn.commit();
-
-        // Ambil total poin terbaru setelah update
         const [rows] = await conn.execute("SELECT points FROM users WHERE id = ?", [userId]);
-        return rows[0].points;
-
+        return rows.length > 0 ? rows[0].points : 0; // Return 0 jika user tidak ditemukan
     } catch (error) {
         await conn.rollback();
         console.error("Gagal menambahkan poin (rollback):", error);
@@ -46,8 +32,6 @@ Point.addPoints = async (userId, points, activityType, activityDetails) => {
 
 /**
  * Mengambil riwayat perolehan poin untuk seorang user.
- * @param {number} userId - ID dari user.
- * @returns {Promise<Array>} - Daftar riwayat poin.
  */
 Point.getPointHistory = async (userId) => {
     const [rows] = await db.execute(
@@ -57,60 +41,89 @@ Point.getPointHistory = async (userId) => {
     return rows;
 };
 
-// --- FUNGSI BARU UNTUK RIWAYAT MATERI PER MAPEL ---
+// --- FUNGSI DIPERBAIKI (Collation Fix) UNTUK RIWAYAT MATERI PER MAPEL ---
 Point.getHistoryForSubject = async (userId, subjectName) => {
+    // Tentukan collation default database/tabel Anda di sini (ganti jika perlu)
+    const dbCollation = 'utf8mb4_unicode_ci'; // Ganti ke utf8mb4_general_ci jika itu default Anda
+
     const query = `
-        SELECT 
+        SELECT
             ss.id,
-            c.judul as title,
+            c.judul AS title,
             ss.score,
-            ss.submission_date as date,
-            ph.points_earned as points
+            ss.submission_date AS date,
+            COALESCE((SELECT ph.points_earned
+                      FROM points_history ph
+                      WHERE ph.user_id = ss.user_id
+                        AND ph.activity_type = 'MATERI_COMPLETION'
+                        -- TAMBAHKAN COLLATE di sini
+                        AND ph.activity_details COLLATE ${dbCollation} LIKE CONCAT('%', COALESCE(c.judul, 'FallbackJudulKosong') COLLATE ${dbCollation}, '%')
+                      ORDER BY ph.created_at DESC
+                      LIMIT 1
+                     ), 820) AS points
         FROM student_submissions ss
         JOIN chapters c ON ss.chapter_id = c.id
         JOIN subjects s ON c.subject_id = s.id
-        LEFT JOIN points_history ph ON (ph.activity_details LIKE CONCAT('%', c.judul, '%') AND ph.user_id = ss.user_id)
-        WHERE ss.user_id = ? AND s.nama_mapel = ? AND ss.status = 'selesai'
+        WHERE ss.user_id = ?
+          AND s.nama_mapel = ?
+          AND ss.status IN ('selesai', 'dinilai')
         ORDER BY ss.submission_date DESC
     `;
-    const [rows] = await db.execute(query, [userId, subjectName]);
-    // Memberikan nilai default 820 jika poin tidak tercatat di history
-    return rows.map(row => ({ ...row, points: row.points || 820 }));
+    try {
+        const [rows] = await db.execute(query, [userId, subjectName]);
+        return rows;
+    } catch (error) {
+        console.error(`Error fetching history for subject "${subjectName}" for user ${userId}:`, error);
+        throw error;
+    }
 };
 
 
-// --- FUNGSI DIPERBAIKI ---
+// --- FUNGSI RIWAYAT KUIS (Collation Fix) ---
 Point.getQuizHistory = async (userId) => {
+    const dbCollation = 'utf8mb4_unicode_ci'; // Ganti jika perlu
+
     const query = `
-        SELECT 
+        SELECT
             qs.id,
             q.title,
             qs.score,
             qs.submitted_at as date,
-            600 as points 
+            COALESCE((SELECT ph.points_earned
+                     FROM points_history ph
+                     WHERE ph.user_id = qs.user_id
+                       AND ph.activity_type = 'QUIZ_COMPLETION'
+                       -- TAMBAHKAN COLLATE di sini
+                       AND ph.activity_details COLLATE ${dbCollation} LIKE CONCAT('%', COALESCE(q.title, 'FallbackJudulKuis') COLLATE ${dbCollation}, '%')
+                     ORDER BY ph.created_at DESC
+                     LIMIT 1
+                    ), 600) AS points
         FROM quiz_submissions qs
         JOIN quizzes q ON qs.quiz_id = q.id
         WHERE qs.user_id = ?
         ORDER BY qs.submitted_at DESC
     `;
-    const [rows] = await db.execute(query, [userId]);
-    return rows;
+    try {
+        const [rows] = await db.execute(query, [userId]);
+        return rows;
+    } catch (error) {
+        console.error(`Error fetching quiz history for user ${userId}:`, error);
+        throw error;
+    }
 };
 
 
 /**
  * Mengambil total poin dan informasi peringkat user.
- * @param {number} userId - ID dari user.
- * @returns {Promise<Object>} - Objek berisi total poin dan detail peringkat.
  */
 Point.getSummary = async (userId) => {
+    // ... (Fungsi ini tetap sama seperti sebelumnya) ...
     const [users] = await db.execute("SELECT points FROM users WHERE id = ?", [userId]);
     if (users.length === 0) {
         throw new Error("User tidak ditemukan.");
     }
-    const currentUserPoints = users[0].points;
+    const currentUserPoints = users[0].points || 0; // Default 0 jika null
 
-    // Logika peringkat diambil dari RankPage.jsx
     const ranks = [
         { name: 'Murid Baru', points: 0, color: '#CD7F32', icon: 'bronze' },
         { name: 'Siswa Rajin', points: 5000, color: '#C0C0C0', icon: 'silver' },
@@ -120,16 +133,25 @@ Point.getSummary = async (userId) => {
         { name: 'Legenda Sekolah', points: 100000, color: '#FF4500', icon: 'master' },
     ];
 
-    const currentRankIndex = ranks.slice().reverse().findIndex(r => currentUserPoints >= r.points);
-    const currentRank = ranks[ranks.length - 1 - currentRankIndex];
-    const nextRank = ranks[ranks.length - currentRankIndex];
-    
+    let currentRank = ranks[0];
+    for (let i = ranks.length - 1; i >= 0; i--) {
+        if (currentUserPoints >= ranks[i].points) {
+            currentRank = ranks[i];
+            break;
+        }
+    }
+
+    let nextRank = null;
+    const currentRankIndex = ranks.findIndex(r => r.name === currentRank.name);
+    if (currentRankIndex < ranks.length - 1) {
+        nextRank = ranks[currentRankIndex + 1];
+    }
+
     return {
         totalPoints: currentUserPoints,
         currentRank,
         nextRank
     };
 };
-
 
 module.exports = Point;

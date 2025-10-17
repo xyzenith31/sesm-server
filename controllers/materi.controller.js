@@ -42,54 +42,81 @@ exports.updateChapterSettings = async (req, res) => {
 exports.submitAnswers = async (req, res) => {
     const userId = req.userId;
     const { materiKey } = req.params;
-    const { answers } = req.body; 
+    const { answers } = req.body;
 
     try {
         const chapter = await Materi.findChapterByMateriKey(materiKey);
         if (!chapter) return res.status(404).send({ message: "Bab tidak ditemukan." });
 
-        const pointsAwarded = 820; // Poin yang diberikan
-        let finalScore = 0;
+        const pointsAwarded = 820; // Poin yang diberikan tetap
+        let finalScore = null; // Skor akhir, null jika manual atau tidak ada PG
+        const questions = await Materi.getQuestionsByChapterKey(materiKey);
 
         if (chapter.grading_mode === 'otomatis') {
-            let score = 0;
-            let anyWrong = false;
-            const questions = await Materi.getQuestionsByChapterKey(materiKey);
-            const submissionId = await Materi.createSubmission(userId, chapter.id, 0, true, 'selesai');
+            let correctMcCount = 0;
+            let totalMcQuestions = 0;
+            let anyWrong = false; // Flag jika ada jawaban salah
+
+            // Buat submission ID *sebelum* loop jawaban
+            const submissionId = await Materi.createSubmission(userId, chapter.id, null, true, 'selesai'); // Skor awal null
 
             for (const ans of answers) {
                 const question = questions.find(q => q.id === ans.questionId);
-                let isCorrect = false;
-                
-                if (question && question.correctAnswer && question.correctAnswer.toLowerCase() === (ans.answer || '').toLowerCase()) {
-                    isCorrect = true;
-                    score += 10; 
-                } else {
-                    anyWrong = true;
-                    if(chapter.setting_penalty_on_wrong){
-                        score -= 5;
+                let isCorrect = null; // Default null untuk esai atau jika tidak ada kunci
+
+                if (question) {
+                    if (question.tipe_soal.includes('pilihan-ganda')) {
+                        totalMcQuestions++;
+                        // Periksa jawaban PG (case-insensitive & trim)
+                        if (question.correctAnswer && (ans.answer || '').trim().toLowerCase() === question.correctAnswer.trim().toLowerCase()) {
+                            isCorrect = true;
+                            correctMcCount++;
+                        } else {
+                            isCorrect = false;
+                            anyWrong = true; // Set flag jika ada PG yang salah
+                        }
                     }
+                    // Simpan jawaban siswa (esai akan memiliki isCorrect = null)
+                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, isCorrect);
+                } else {
+                     console.warn(`Question ID ${ans.questionId} not found for materiKey ${materiKey}`);
                 }
-                await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, isCorrect);
-            }
-            
-            if(chapter.setting_fail_on_any_wrong && anyWrong){
-                score = 0;
             }
 
-            finalScore = Math.max(0, score);
-            await Materi.gradeSubmissionManually(submissionId, finalScore);
-        } else { // Penilaian manual
-            const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'selesai');
-            for (const ans of answers) {
-                const questionExists = await Materi.checkQuestionExists(ans.questionId);
-                if(questionExists){
-                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
+            // Hitung skor persentase jika ada soal PG
+            if (totalMcQuestions > 0) {
+                 // Terapkan penalti jika ada (opsional, logika ini bisa dihilangkan jika tidak perlu)
+                // Logika skor baru: Persentase
+                finalScore = Math.round((correctMcCount / totalMcQuestions) * 100);
+
+                // Terapkan setting 'Nilai Nol Jika Ada yang Salah'
+                if (chapter.setting_fail_on_any_wrong && anyWrong) {
+                    finalScore = 0;
                 }
+
+            } else {
+                finalScore = 100; // Jika tidak ada PG, anggap 100 (atau null sesuai kebutuhan)
             }
+
+            // Update skor di tabel submission
+            await Materi.gradeSubmissionManually(submissionId, finalScore);
+
+        } else { // Penilaian manual
+            // Buat submission dengan status menunggu dan skor null
+            const submissionId = await Materi.createSubmission(userId, chapter.id, null, false, 'menunggu'); // Status 'menunggu'
+            for (const ans of answers) {
+                 const questionExists = await Materi.checkQuestionExists(ans.questionId);
+                 if(questionExists){
+                     // Simpan jawaban dengan isCorrect = null
+                    await Materi.saveStudentAnswer(submissionId, ans.questionId, ans.answer, null);
+                 } else {
+                     console.warn(`Question ID ${ans.questionId} not found for materiKey ${materiKey} in manual grading`);
+                 }
+            }
+            finalScore = null; // Skor null untuk mode manual
         }
 
-        // Tambahkan poin setelah submit
+        // Tambahkan poin setelah submit (selalu dilakukan)
         await Point.addPoints(
             userId,
             pointsAwarded,
@@ -97,10 +124,14 @@ exports.submitAnswers = async (req, res) => {
             `Menyelesaikan materi: ${chapter.judul}`
         );
 
-        res.status(200).send({ 
-            message: `Jawaban berhasil dikumpulkan dan Anda mendapatkan ${pointsAwarded} poin!`, 
-            score: finalScore,
-            pointsAwarded: pointsAwarded 
+        const responseMessage = chapter.grading_mode === 'otomatis'
+            ? `Jawaban berhasil dikumpulkan. Skor Pilihan Ganda Anda: ${finalScore !== null ? finalScore : 'N/A'}. Anda mendapatkan ${pointsAwarded} poin!`
+            : `Jawaban berhasil dikumpulkan dan menunggu penilaian guru. Anda mendapatkan ${pointsAwarded} poin!`;
+
+        res.status(200).send({
+            message: responseMessage,
+            score: finalScore, // Kirim skor (bisa null jika manual)
+            pointsAwarded: pointsAwarded
         });
 
     } catch (error) {
@@ -113,14 +144,18 @@ exports.updateQuestion = async (req, res) => {
     const { questionId } = req.params;
     try {
         const mediaFiles = req.files;
-        const new_media_objects = mediaFiles ? mediaFiles.map(file => ({ type: 'file', url: file.path.replace(/\\/g, "/") })) : [];
+        // Ambil lampiran yang sudah ada (existing) DARI body request
         const existing_attachments = req.body.attachments ? JSON.parse(req.body.attachments) : [];
+        // Ambil file BARU yang diupload
+        const new_media_objects = mediaFiles ? mediaFiles.map(file => ({ type: 'file', url: file.path.replace(/\\/g, "/") })) : [];
+
+        // Gabungkan keduanya
         const all_media = [...existing_attachments, ...new_media_objects];
 
         const questionData = {
             ...req.body,
             options: req.body.options ? JSON.parse(req.body.options) : [],
-            media_urls: all_media
+            media_urls: all_media // Simpan gabungan media
         };
         const updatedQuestion = await Materi.updateQuestion(questionId, questionData);
         res.status(200).json({ message: "Soal berhasil diperbarui.", data: updatedQuestion });
@@ -164,7 +199,7 @@ exports.addQuestion = async (req, res) => {
 };
 
 exports.getAllQuestionsForBank = async (req, res) => {
-    const { jenjang, kelas } = req.query; 
+    const { jenjang, kelas } = req.query;
     if (!jenjang) return res.status(400).send({ message: "Query 'jenjang' dibutuhkan." });
     try {
         const data = await Materi.getAllQuestionsForBank(jenjang, kelas);
@@ -191,9 +226,9 @@ exports.getDetailMateriForAdmin = async (req, res) => {
     try {
         const chapter = await Materi.findChapterByMateriKey(materiKey);
         const questions = await Materi.getQuestionsByChapterKey(materiKey);
-        res.status(200).json({ 
+        res.status(200).json({
             judul: chapter ? chapter.judul : "Tidak Ditemukan",
-            questions 
+            questions
         });
     } catch (error) {
         res.status(500).send({ message: error.message });
@@ -247,6 +282,7 @@ exports.getMateriSiswa = async (req, res) => {
     const { materiKey } = req.params;
     try {
         const questionsWithAnswers = await Materi.getQuestionsByChapterKey(materiKey);
+        // Hapus kunci jawaban sebelum dikirim ke siswa
         const questionsForSiswa = questionsWithAnswers.map(({ correctAnswer, jawaban_esai, ...q }) => q);
         res.status(200).json(questionsForSiswa);
     } catch (error) {
