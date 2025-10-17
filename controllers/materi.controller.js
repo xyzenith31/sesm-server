@@ -281,10 +281,35 @@ exports.getChaptersBySubjectName = async (req, res) => {
 exports.getMateriSiswa = async (req, res) => {
     const { materiKey } = req.params;
     try {
+        // 1. Ambil data chapter (termasuk settings)
+        const chapter = await Materi.findChapterByMateriKey(materiKey);
+        if (!chapter) {
+            return res.status(404).send({ message: "Materi tidak ditemukan." });
+        }
+
+        // 2. Ambil data soal
         const questionsWithAnswers = await Materi.getQuestionsByChapterKey(materiKey);
-        // Hapus kunci jawaban sebelum dikirim ke siswa
+        
+        // 3. Hapus kunci jawaban sebelum dikirim ke siswa
         const questionsForSiswa = questionsWithAnswers.map(({ correctAnswer, jawaban_esai, ...q }) => q);
-        res.status(200).json(questionsForSiswa);
+        
+        // 4. Buat objek settings yang rapi
+        const settings = {
+            setting_penalty_on_wrong: !!chapter.setting_penalty_on_wrong,
+            setting_randomize_questions: !!chapter.setting_randomize_questions,
+            setting_show_correct_answers: !!chapter.setting_show_correct_answers,
+            setting_time_limit_minutes: chapter.setting_time_limit_minutes,
+            setting_require_all_answers: !!chapter.setting_require_all_answers,
+            setting_strict_zero_on_wrong: !!chapter.setting_strict_zero_on_wrong,
+            setting_fail_on_any_wrong: !!chapter.setting_fail_on_any_wrong,
+        };
+        
+        // 5. Kirim objek gabungan berisi soal dan pengaturan
+        res.status(200).json({
+            questions: questionsForSiswa,
+            settings: settings
+        });
+
     } catch (error) {
         res.status(500).send({ message: error.message });
     }

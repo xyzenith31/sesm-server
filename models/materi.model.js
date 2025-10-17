@@ -462,29 +462,23 @@ Materi.getSubmissionIdFromAnswer = async (answerId) => {
     return rows[0]?.submission_id;
 };
 
-// Fungsi recalculateScore TIDAK DIPANGGIL lagi oleh overrideAnswer controller
-// Fungsi ini bisa tetap ada jika diperlukan di tempat lain, tapi perlu diperbaiki
-// logikanya agar menghitung persentase jika diperlukan.
 Materi.recalculateScore = async (submissionId) => {
-    // DAPATKAN DATA CHAPTER UNTUK TAU JUMLAH SOAL PG
     const [submissionInfo] = await db.execute(
         `SELECT c.id as chapter_id
          FROM student_submissions ss
          JOIN chapters c ON ss.chapter_id = c.id
          WHERE ss.id = ?`, [submissionId]
     );
-    if (!submissionInfo.length) return 0; // Submission tidak valid
+    if (!submissionInfo.length) return 0;
 
     const chapterId = submissionInfo[0].chapter_id;
 
-    // Hitung total soal PG di chapter ini
     const [mcCountResult] = await db.execute(
         "SELECT COUNT(*) as totalMc FROM questions WHERE chapter_id = ? AND tipe_soal LIKE '%pilihan-ganda%'",
         [chapterId]
     );
     const totalMcQuestions = mcCountResult[0].totalMc;
 
-    // Hitung jawaban benar (hanya PG)
     const [correctCountResult] = await db.execute(
         `SELECT COUNT(sa.id) as correctCount
          FROM student_answers sa
@@ -494,16 +488,13 @@ Materi.recalculateScore = async (submissionId) => {
     );
     const correctMcCount = correctCountResult[0].correctCount;
 
-    // Hitung skor persentase
-    const newScore = totalMcQuestions > 0 ? Math.round((correctMcCount / totalMcQuestions) * 100) : 0; // Skor 0 jika tidak ada PG
+    const newScore = totalMcQuestions > 0 ? Math.round((correctMcCount / totalMcQuestions) * 100) : 0;
 
-    // Update skor di submission
     await db.execute("UPDATE student_submissions SET score = ? WHERE id = ?", [newScore, submissionId]);
 
-    return newScore; // Kembalikan skor baru
+    return newScore;
 };
 
-// Fungsi baru untuk verifikasi kepemilikan submission
 Materi.findSubmissionByIdForStudent = async (submissionId, userId) => {
     const [rows] = await db.execute(
         "SELECT * FROM student_submissions WHERE id = ? AND user_id = ?",
