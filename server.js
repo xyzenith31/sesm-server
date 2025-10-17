@@ -1,3 +1,4 @@
+// contoh-sesm-server/server.js
 const express = require('express');
 const cors = require('cors');
 const os = require('os');
@@ -5,31 +6,26 @@ require('dotenv').config();
 
 const app = express();
 
-// Middleware (Tidak berubah)
+// ✅ PERBAIKAN: Menaikkan batas ukuran payload
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static('uploads')); //
+app.use(express.json({ limit: '50mb' })); // Naikkan batas untuk JSON
+app.use(express.urlencoded({ limit: '50mb', extended: true })); // Naikkan batas untuk URL-encoded
 
-// Route utama (Tidak berubah)
+app.use('/uploads', express.static('uploads'));
+
+// Route utama
 app.get('/', (req, res) => {
-  res.json({ message: 'Selamat datang di API backend.' }); //
+  res.json({ message: 'Selamat datang di API backend.' });
 });
 
-// Routes (Tidak berubah)
-require('./routes')(app); //
+// Routes
+require('./routes')(app);
 
-// --- BAGIAN YANG DIPERBARUI: Menjalankan server ---
-
-const PORT = process.env.PORT || 8080; //
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\nServer backend berhasil berjalan.`);
-
-  // Menampilkan alamat Local
   console.log(`  -> Local:    http://localhost:${PORT}`);
-
-  // Mencari dan menampilkan alamat Network
   const interfaces = os.networkInterfaces();
   Object.keys(interfaces).forEach((devName) => {
     interfaces[devName].forEach((details) => {
@@ -38,6 +34,5 @@ app.listen(PORT, '0.0.0.0', () => {
       }
     });
   });
-
   console.log('\nTekan CTRL+C untuk menghentikan server.');
 });
