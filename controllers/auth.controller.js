@@ -1,11 +1,11 @@
-// contoh-server-sesm/controllers/auth.controller.js
+// contoh-sesm-server/controllers/auth.controller.js
 const User = require('../models/user.model.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 
-// --- HELPER FUNCTION ---
+// --- HELPER FUNCTION (Tidak berubah) ---
 const sendVerificationEmail = async (userEmail, token, type = 'login') => {
     try {
         const transporter = nodemailer.createTransport({
@@ -64,13 +64,9 @@ exports.register = async (req, res) => {
         return res.status(400).send({ message: "Password dan Konfirmasi Password tidak cocok." });
     }
     try {
-        // Simpan user baru
         const newUser = { username, email, password: bcrypt.hashSync(password, 8), nama, umur, role: role || 'siswa' };
         const createdUser = await User.create(newUser);
-
-        // Kirim kode verifikasi
         await generateAndSaveToken(createdUser.id, createdUser.email, 'register');
-        
         res.status(201).send({ message: "User berhasil didaftarkan! Silakan cek email Anda untuk kode aktivasi." });
     } catch (error) {
         res.status(500).send({ message: error.message });
@@ -86,9 +82,7 @@ exports.login = async (req, res) => {
         const passwordIsValid = bcrypt.compareSync(password, user.password);
         if (!passwordIsValid) return res.status(401).send({ message: "Password salah!" });
 
-        // Kirim kode verifikasi
         await generateAndSaveToken(user.id, user.email, 'login');
-
         res.status(200).send({ message: "Kode verifikasi telah dikirim ke email Anda." });
     } catch (error) {
         res.status(500).send({ message: error.message });
@@ -110,12 +104,11 @@ exports.verifyAndLogin = async (req, res) => {
             return res.status(400).send({ message: "Kode verifikasi salah." });
         }
         
-        // Kode cocok, bersihkan token
         await User.clearResetToken(user.id);
 
-        // Buat token JWT dan kirim data user untuk login
-        const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: 86400 }); // 24 hours
+        const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: 86400 });
         
+        // ✅ PERBAIKAN: Tambahkan field 'avatar' ke dalam response
         res.status(200).send({
             message: "Verifikasi berhasil! Anda sekarang login.",
             id: user.id,
@@ -125,6 +118,7 @@ exports.verifyAndLogin = async (req, res) => {
             jenjang: user.jenjang,
             kelas: user.kelas,
             role: user.role,
+            avatar: user.avatar, // <-- Tambahan di sini
             accessToken: token
         });
 
@@ -134,7 +128,7 @@ exports.verifyAndLogin = async (req, res) => {
 };
 
 
-// --- FUNGSI LUPA PASSWORD (TETAP SAMA TAPI MENGGUNAKAN HELPER) ---
+// --- FUNGSI LUPA PASSWORD ---
 exports.forgotPassword = async (req, res) => {
     const { identifier } = req.body;
     try {
@@ -200,10 +194,14 @@ exports.resetPassword = async (req, res) => {
         const hashedPassword = bcrypt.hashSync(password, 8);
         await User.updatePasswordAndClearToken(user.id, hashedPassword);
         const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: 86400 });
+
+        // ✅ PERBAIKAN: Tambahkan field 'avatar' ke dalam response
         res.status(200).send({
           message: "Password berhasil diubah. Anda sekarang login.",
           id: user.id, username: user.username, email: user.email, nama: user.nama,
-          jenjang: user.jenjang, kelas: user.kelas, role: user.role, accessToken: token
+          jenjang: user.jenjang, kelas: user.kelas, role: user.role,
+          avatar: user.avatar, // <-- Tambahan di sini
+          accessToken: token
         });
     } catch (error) {
         res.status(500).send({ message: "Gagal mengubah password." });
