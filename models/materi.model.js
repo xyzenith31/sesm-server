@@ -5,6 +5,16 @@ const path = require('path');
 
 const Materi = {};
 
+// Fungsi untuk mengecek apakah user sudah menyelesaikan chapter
+Materi.checkCompletionStatus = async (userId, chapterId) => {
+    const [rows] = await db.execute(
+        "SELECT id FROM student_submissions WHERE user_id = ? AND chapter_id = ? AND status IN ('selesai', 'dinilai') LIMIT 1",
+        [userId, chapterId]
+    );
+    return rows.length > 0;
+};
+
+
 // --- FUNGSI BARU UNTUK MENAMBAH SOAL DARI BANK KE MATERI ---
 Materi.addQuestionsFromBankToChapter = async (materiKey, questionIds) => {
     if (!questionIds || questionIds.length === 0) {
@@ -215,11 +225,16 @@ Materi.getAllQuestionsForBank = async (jenjang, kelas) => {
     return rows;
 };
 
+// --- FUNGSI DIPERBARUI: Menambahkan JOIN ke users ---
 Materi.findChapterByMateriKey = async (materiKey) => {
     const [rows] = await db.execute(`
-        SELECT *, id as chapter_id
-        FROM chapters
-        WHERE materiKey = ?
+        SELECT
+            c.*, c.id as chapter_id,
+            u.nama as creator_name,
+            u.avatar as creator_avatar
+        FROM chapters c
+        LEFT JOIN users u ON c.creator_id = u.id  -- Menggunakan LEFT JOIN jika creator_id bisa NULL
+        WHERE c.materiKey = ?
     `, [materiKey]);
     return rows[0];
 };
@@ -260,25 +275,42 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
     return questions;
 };
 
-Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel) => {
+// --- FUNGSI DIPERBARUI: Menambahkan JOIN ke users dan subquery/JOIN untuk status penyelesaian ---
+Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel, userId) => {
     let query = `
-        SELECT c.id, c.judul, c.materiKey
+        SELECT
+            c.id, c.judul, c.materiKey,
+            u.nama as creator_name,
+            u.avatar as creator_avatar,
+            -- Subquery untuk mengecek status penyelesaian
+            EXISTS (
+                SELECT 1
+                FROM student_submissions ss
+                WHERE ss.chapter_id = c.id AND ss.user_id = ? AND ss.status IN ('selesai', 'dinilai')
+            ) as hasCompleted
         FROM chapters c
         JOIN subjects s ON c.subject_id = s.id
+        LEFT JOIN users u ON c.creator_id = u.id -- Bergabung dengan tabel users
         WHERE s.jenjang = ? AND s.nama_mapel = ?
     `;
-    const params = [jenjang, namaMapel];
-    if (jenjang.toUpperCase() === 'SD') {
+    // Parameter untuk subquery (userId) ditambahkan di awal
+    const params = [userId, jenjang, namaMapel];
+
+    if (jenjang.toUpperCase() === 'SD' && kelas) { // Pastikan kelas ditambahkan jika SD
         query += " AND s.kelas = ?";
         params.push(kelas);
-    } else {
+    } else if (jenjang.toUpperCase() === 'TK') { // Pastikan hanya data TK yang diambil
         query += " AND s.kelas IS NULL";
     }
+    // Tambahkan ORDER BY jika diperlukan
+    query += " ORDER BY c.judul ASC";
+
     const [rows] = await db.execute(query, params);
-    return rows;
+    // Konversi hasCompleted ke boolean
+    return rows.map(row => ({ ...row, hasCompleted: !!row.hasCompleted }));
 };
 
-Materi.createChapter = async (judul, subjectId) => {
+Materi.createChapter = async (judul, subjectId, creatorId) => { // Tambahkan creatorId
     const [subjects] = await db.execute("SELECT jenjang, kelas, nama_mapel FROM subjects WHERE id = ?", [subjectId]);
     if (subjects.length === 0) throw new Error("Subject ID tidak ditemukan.");
     const { jenjang, kelas, nama_mapel } = subjects[0];
@@ -287,8 +319,9 @@ Materi.createChapter = async (judul, subjectId) => {
     const materiKey = `${jenjang.toLowerCase()}${kelas || ''}-${safeMapelName}-${timestamp}`;
 
     const [result] = await db.execute(
-        "INSERT INTO chapters (judul, materiKey, subject_id) VALUES (?, ?, ?)",
-        [judul, materiKey, subjectId]
+        // Tambahkan creator_id ke INSERT
+        "INSERT INTO chapters (judul, materiKey, subject_id, creator_id) VALUES (?, ?, ?, ?)",
+        [judul, materiKey, subjectId, creatorId] // Masukkan creatorId
     );
     return { id: result.insertId, judul, materiKey, subjectId };
 };
