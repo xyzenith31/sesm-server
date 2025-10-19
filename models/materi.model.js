@@ -1,4 +1,4 @@
-// contoh-server-sesm/models/materi.model.js
+// contoh-sesm-server/models/materi.model.js
 const db = require("../config/database.config.js");
 const fs = require('fs');
 const path = require('path');
@@ -244,14 +244,21 @@ Materi.checkQuestionExists = async (questionId) => {
     return rows.length > 0;
 };
 
+// --- ✅ PERBAIKAN UTAMA DI SINI ---
 Materi.getQuestionsByChapterKey = async (materiKey) => {
+    // Query diperbaiki untuk melakukan JOIN ke users melalui tabel chapters
     const query = `
-        SELECT q.id, q.pertanyaan, q.tipe_soal, q.jawaban_esai, q.media_urls
+        SELECT 
+            q.id, q.pertanyaan, q.tipe_soal, q.jawaban_esai, q.media_urls,
+            u.nama as creator_name, 
+            u.avatar as creator_avatar
         FROM questions q
         JOIN chapters c ON q.chapter_id = c.id
+        LEFT JOIN users u ON c.creator_id = u.id  -- JOIN ke users dari chapters
         WHERE c.materiKey = ?
     `;
     const [questions] = await db.execute(query, [materiKey]);
+
     for (const q of questions) {
         if (q.media_urls) {
             try { q.media_urls = JSON.parse(q.media_urls); } catch (e) { q.media_urls = []; console.error(`Failed to parse media_urls for question ${q.id}: ${q.media_urls}`); }
@@ -261,7 +268,7 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
 
         if (q.tipe_soal.includes('pilihan-ganda')) {
             const [options] = await db.execute(
-                "SELECT opsi_jawaban, is_correct FROM question_options WHERE question_id = ?",
+                "SELECT opsi_jawaban, is_correct FROM question_options WHERE question_id = ? ORDER BY id ASC", // Tambahkan ORDER BY
                 [q.id]
             );
             q.options = options.map(opt => opt.opsi_jawaban);
@@ -274,6 +281,7 @@ Materi.getQuestionsByChapterKey = async (materiKey) => {
     }
     return questions;
 };
+
 
 // --- FUNGSI DIPERBARUI: Menambahkan JOIN ke users dan subquery/JOIN untuk status penyelesaian ---
 Materi.findChaptersBySubjectName = async (jenjang, kelas, namaMapel, userId) => {
