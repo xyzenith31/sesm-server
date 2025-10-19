@@ -198,11 +198,15 @@ Quiz.getAll = async () => {
 Quiz.getQuestionsForQuiz = async (quizId) => {
     const id = parseInt(quizId, 10);
     if (isNaN(id)) return [];
+    // --- PERBAIKAN: Ambil juga 'is_correct' untuk Pilihan Ganda ---
+    // Walaupun ini untuk student, kita BUTUH 'is_correct' di frontend untuk perbandingan
     const [questions] = await db.execute("SELECT id, question_text, question_type, media_attachments FROM quiz_questions WHERE quiz_id = ?", [id]);
     for (const q of questions) {
         q.media_attachments = q.media_attachments ? JSON.parse(q.media_attachments) : [];
         if (q.question_type.includes('pilihan-ganda')) {
-            const [options] = await db.execute("SELECT id, option_text FROM quiz_question_options WHERE question_id = ?", [q.id]);
+            // --- INI DIA PERBAIKANNYA ---
+            // Kita ambil 'is_correct' biar frontend bisa ngecek
+            const [options] = await db.execute("SELECT id, option_text, is_correct FROM quiz_question_options WHERE question_id = ?", [q.id]);
             q.options = options;
         }
     }
@@ -223,19 +227,58 @@ Quiz.getQuestionsForAdmin = async (quizId) => {
     return questions;
 };
 
+// ==========================================================
+// === PERBAIKAN UTAMA ADA DI FUNGSI SUBMIT DI BAWAH INI ===
+// ==========================================================
 Quiz.submit = async (userId, quizId, answers) => {
     const numericQuizId = parseInt(quizId, 10);
     if (isNaN(numericQuizId)) throw new Error("Quiz ID tidak valid.");
-    const [correctAnswers] = await db.execute(`SELECT qq.id as question_id, qo.option_text as correct_option FROM quiz_questions qq JOIN quiz_question_options qo ON qq.id = qo.question_id WHERE qq.quiz_id = ? AND qo.is_correct = 1`, [numericQuizId]);
+
+    // 1. Ambil kunci jawaban
+    const [correctAnswers] = await db.execute(`
+        SELECT 
+            qq.id as question_id, 
+            qo.option_text as correct_option 
+        FROM quiz_questions qq 
+        JOIN quiz_question_options qo ON qq.id = qo.question_id 
+        WHERE qq.quiz_id = ? AND qo.is_correct = 1
+    `, [numericQuizId]);
+
+    // 2. Buat Map kunci jawaban
     const answerMap = new Map(correctAnswers.map(ans => [ans.question_id, ans.correct_option]));
+    
     let correctCount = 0;
-    for (const ans of answers) { if (answerMap.get(parseInt(ans.questionId, 10)) === ans.answer) { correctCount++; } }
-    const [totalQ] = await db.execute("SELECT COUNT(*) as count FROM quiz_questions WHERE quiz_id = ?", [numericQuizId]);
-    const totalQuestions = totalQ[0].count;
-    const finalScore = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
-    const [result] = await db.execute("INSERT INTO quiz_submissions (user_id, quiz_id, score) VALUES (?, ?, ?)",[userId, numericQuizId, finalScore]);
+    
+    // 3. Loop dan cek jawaban (INI YANG DIPERBAIKI)
+    for (const ans of answers) {
+        const questionId = parseInt(ans.questionId, 10);
+        const correctAnswer = answerMap.get(questionId); // Kunci jawaban dari DB
+        const userAnswer = ans.answer; // Jawaban dari user
+
+        // --- INI DIA LOGIKA BARUNYA ---
+        // Kita cek apakah keduanya ada, lalu ubah ke lowercase dan trim spasi
+        if (correctAnswer && userAnswer && userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase()) {
+            correctCount++;
+        }
+        // --- SELESAI PERBAIKAN LOGIKA ---
+    }
+
+    // 4. Ambil total pertanyaan
+    // (Menggunakan size dari map lebih akurat untuk soal PG)
+    const totalQuestions = answerMap.size > 0 ? answerMap.size : 1; // Hindari pembagian dengan nol
+
+    // 5. Hitung skor
+    const finalScore = Math.round((correctCount / totalQuestions) * 100);
+
+    // 6. Simpan ke DB
+    const [result] = await db.execute(
+        "INSERT INTO quiz_submissions (user_id, quiz_id, score) VALUES (?, ?, ?)",
+        [userId, numericQuizId, finalScore]
+    );
+    
     return { submissionId: result.insertId, score: finalScore };
 };
+
 
 Quiz.getSubmissionsByQuizId = async (quizId) => {
     const numericQuizId = parseInt(quizId, 10);
