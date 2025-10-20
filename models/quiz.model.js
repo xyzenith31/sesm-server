@@ -299,90 +299,121 @@ Quiz.getQuestionsForAdmin = async (quizId) => {
 Quiz.submit = async (userId, quizId, answers) => {
     const numericQuizId = parseInt(quizId, 10);
     if (isNaN(numericQuizId)) throw new Error("Quiz ID tidak valid.");
-    console.log(`[Quiz.submit] User: ${userId}, Quiz: ${numericQuizId}, Received Answers:`, JSON.stringify(answers));
+    console.log(`\n\n[Quiz.submit V2 START] User: ${userId}, Quiz: ${numericQuizId}, Number of Answers: ${answers.length}`);
+    // console.log(`[Quiz.submit V2] Raw Answers Payload:`, JSON.stringify(answers, null, 2)); // Uncomment if needed
 
-    // 1. Ambil Pengaturan Kuis dari DB
+    // --- Langkah 1: Ambil Pengaturan Kuis ---
+    console.log(`[Quiz.submit V2] Fetching quiz settings...`);
     const [quizSettingsRows] = await db.execute(
-        "SELECT setting_strict_scoring, setting_points_per_correct FROM quizzes WHERE id = ?", // Ambil kolom yang benar
+        "SELECT setting_strict_scoring, setting_points_per_correct FROM quizzes WHERE id = ?",
         [numericQuizId]
     );
     if (quizSettingsRows.length === 0) {
-        console.error(`[Quiz.submit] Quiz not found: ${numericQuizId}`);
+        console.error(`[Quiz.submit V2 ERROR] Quiz ${numericQuizId} not found in database.`);
         throw new Error("Kuis tidak ditemukan.");
     }
     const { setting_strict_scoring, setting_points_per_correct } = quizSettingsRows[0];
     const strictScoringEnabled = !!setting_strict_scoring;
-    const pointsPerCorrectStrict = setting_points_per_correct || 100;
-    console.log(`[Quiz.submit] Settings - Strict Scoring: ${strictScoringEnabled}, Points/Correct (Strict): ${pointsPerCorrectStrict}`);
+    const pointsPerCorrectStrict = parseInt(setting_points_per_correct, 10) > 0 ? parseInt(setting_points_per_correct, 10) : 100; // Default 100 if invalid
+    console.log(`[Quiz.submit V2] Settings Fetched - Strict Mode: ${strictScoringEnabled}, Points/Correct (Strict): ${pointsPerCorrectStrict}`);
 
-    // 2. Tentukan Poin per Jawaban
+    // --- Langkah 2: Tentukan Skema Poin ---
     const pointsCorrectDefault = 50;
     const pointsIncorrectDefault = 25;
     const pointsCorrect = strictScoringEnabled ? pointsPerCorrectStrict : pointsCorrectDefault;
-    const pointsIncorrect = strictScoringEnabled ? 0 : pointsIncorrectDefault;
-    console.log(`[Quiz.submit] Points Logic - Correct: ${pointsCorrect}, Incorrect: ${pointsIncorrect}`);
+    const pointsIncorrect = strictScoringEnabled ? 0 : pointsIncorrectDefault; // Poin untuk salah / esai
+    console.log(`[Quiz.submit V2] Point Scheme - Correct: ${pointsCorrect}, Incorrect/Essay: ${pointsIncorrect}`);
 
-    // 3. Ambil Kunci Jawaban (hanya untuk PG)
+    // --- Langkah 3: Ambil Kunci Jawaban Pilihan Ganda ---
+    console.log(`[Quiz.submit V2] Fetching correct answers map...`);
     const [correctAnswers] = await db.execute(`
         SELECT qq.id as question_id, qo.option_text as correct_option
         FROM quiz_questions qq JOIN quiz_question_options qo ON qq.id = qo.question_id
         WHERE qq.quiz_id = ? AND qo.is_correct = 1 AND qq.question_type LIKE '%pilihan-ganda%'
     `, [numericQuizId]);
     const answerMap = new Map(correctAnswers.map(ans => [ans.question_id, ans.correct_option]));
-    console.log(`[Quiz.submit] Correct Answer Map size: ${answerMap.size}`);
-    // console.log(`[Quiz.submit] Correct Answer Map content:`, answerMap); // Optional: log content if needed
+    console.log(`[Quiz.submit V2] Correct Answer Map created with ${answerMap.size} entries.`);
 
-    let totalPointsEarned = 0;
-    let correctCount = 0;
-    let pgQuestionCount = 0;
+    // --- Langkah 4: Iterasi dan Hitung Poin ---
+    let totalPointsEarned = 0; // Inisialisasi HARUS di luar loop
+    let correctMcCount = 0;
+    let totalMcQuestions = 0;
+    console.log(`[Quiz.submit V2] Starting answer processing loop...`);
 
-    // 4. Hitung Poin Berdasarkan Jawaban Siswa
-    console.log(`[Quiz.submit] Calculating points for ${answers.length} answers...`);
-    // !!! Loop ini memproses SEMUA jawaban, termasuk yang pertama !!!
-    for (const ans of answers) {
+    for (let i = 0; i < answers.length; i++) {
+        const ans = answers[i];
         const questionId = parseInt(ans.questionId, 10);
-        const userAnswer = ans.answer;
-        const correctAnswer = answerMap.get(questionId); // Hanya akan ada jika soalnya PG
-        console.log(`[Quiz.submit] QID: ${questionId}, User Answer: "${userAnswer}", Correct Answer (from map): "${correctAnswer}"`);
+        // Pastikan userAnswer selalu string, default string kosong jika null/undefined
+        const userAnswer = (ans.answer === null || ans.answer === undefined) ? "" : String(ans.answer);
+        const correctAnswerKey = answerMap.get(questionId); // Ambil kunci jawaban PG jika ada
+        const isMcQuestion = correctAnswerKey !== undefined; // Cek apakah ini soal PG berdasarkan map
 
+        console.log(`\n[Quiz.submit V2 LOOP ${i + 1}/${answers.length}] ---- Processing Question ID: ${questionId} ----`);
+        console.log(`  User Answer Received: "${ans.answer}" (Processed as: "${userAnswer}")`);
+        console.log(`  Is this detected as Multiple Choice? ${isMcQuestion}`);
+        if (isMcQuestion) {
+            console.log(`  Correct Answer Key from Map: "${correctAnswerKey}"`);
+        }
+
+        let pointsForThisQuestion = 0; // Poin HANYA untuk soal ini
         let isCorrect = false;
 
-        // Cek kebenaran HANYA jika soalnya PG (ada di answerMap)
-        if (correctAnswer !== undefined) {
-             pgQuestionCount++;
-             // Handle null/undefined userAnswer, pastikan jadi string kosong
-             const userTrimmedLower = userAnswer ? String(userAnswer).trim().toLowerCase() : "";
-             const correctTrimmedLower = correctAnswer ? String(correctAnswer).trim().toLowerCase() : "";
-             console.log(`[Quiz.submit] Comparing (PG): "${userTrimmedLower}" vs "${correctTrimmedLower}"`);
-             isCorrect = userTrimmedLower === correctTrimmedLower;
+        if (isMcQuestion) {
+            totalMcQuestions++;
+            const userTrimmedLower = userAnswer.trim().toLowerCase();
+            const correctTrimmedLower = correctAnswerKey.trim().toLowerCase(); // Kunci jawaban PG seharusnya tidak kosong
+
+            isCorrect = userTrimmedLower === correctTrimmedLower;
+
             if (isCorrect) {
-                correctCount++;
-                console.log(`[Quiz.submit] --> Correct! Adding ${pointsCorrect} points.`);
-                totalPointsEarned += pointsCorrect; // Menambah poin jika benar
+                pointsForThisQuestion = pointsCorrect;
+                correctMcCount++;
+                console.log(`  Result (MC): CORRECT!`);
             } else {
-                 console.log(`[Quiz.submit] --> Incorrect (PG). Adding ${pointsIncorrect} points.`);
-                 totalPointsEarned += pointsIncorrect; // Menambah poin (atau 0 jika strict) jika salah
+                pointsForThisQuestion = pointsIncorrect;
+                console.log(`  Result (MC): INCORRECT.`);
             }
         } else {
-             // Ini adalah soal esai ATAU soal PG yang tidak ada kunci jawabannya di map (seharusnya tidak terjadi jika data benar)
-             console.log(`[Quiz.submit] --> Essay or PG without key. Adding ${pointsIncorrect} points.`);
-             totalPointsEarned += pointsIncorrect; // Beri poin untuk jawaban salah/esai
+            // Ini adalah soal Esai murni ATAU soal PG yang kuncinya tidak ditemukan (kemungkinan error data)
+            // Untuk Esai, kita beri poin 'salah' karena perlu dinilai manual
+            pointsForThisQuestion = pointsIncorrect;
+            console.log(`  Result (Essay or MC Error): Applying 'incorrect/essay' points logic.`);
         }
-    }
-    totalPointsEarned = Math.max(0, totalPointsEarned); // Pastikan tidak negatif
-    console.log(`[Quiz.submit] Total Points Calculated: ${totalPointsEarned}, Correct Count: ${correctCount}, PG Count: ${pgQuestionCount}`);
 
-    // Hitung Skor Persentase (hanya berdasarkan soal PG)
-    const percentageScore = pgQuestionCount > 0 ? Math.round((correctCount / pgQuestionCount) * 100) : 0; // Skor 0 jika tidak ada soal PG
-    console.log(`[Quiz.submit] Percentage Score Calculated: ${percentageScore}`);
+        // AKUMULASI Poin
+        totalPointsEarned += pointsForThisQuestion;
+        console.log(`  Points Added This Question: ${pointsForThisQuestion}`);
+        console.log(`  Running Total Points: ${totalPointsEarned}`);
+        console.log(`[Quiz.submit V2 LOOP ${i + 1}/${answers.length}] ---- END Processing Question ID: ${questionId} ----`);
+    } // Akhir Loop
 
-    // 5. Simpan Hasil Submission ke DB
-    console.log(`[Quiz.submit] Saving submission - User: ${userId}, Quiz: ${numericQuizId}, Score: ${percentageScore}, Points Earned: ${totalPointsEarned}`);
-    const [result] = await db.execute( "INSERT INTO quiz_submissions (user_id, quiz_id, score, points_earned, submitted_at) VALUES (?, ?, ?, ?, NOW())", [userId, numericQuizId, percentageScore, totalPointsEarned] );
-    console.log(`[Quiz.submit] Submission saved. Insert ID: ${result.insertId}`);
+    console.log(`\n[Quiz.submit V2] Loop finished.`);
+    // Pastikan total poin tidak negatif (jika ada skema pengurangan poin di masa depan)
+    totalPointsEarned = Math.max(0, totalPointsEarned);
+    console.log(`[Quiz.submit V2] Final Calculated Points: ${totalPointsEarned}`);
+    console.log(`[Quiz.submit V2] MC Stats - Correct: ${correctMcCount}, Total: ${totalMcQuestions}`);
 
-    // 6. Kembalikan ID submission, total poin, dan skor persentase
-    return { submissionId: result.insertId, pointsEarned: totalPointsEarned, score: percentageScore };
+    // --- Langkah 5: Hitung Skor Persentase (berdasarkan soal PG saja) ---
+    const percentageScore = totalMcQuestions > 0 ? Math.round((correctMcCount / totalMcQuestions) * 100) : 0;
+    console.log(`[Quiz.submit V2] Calculated Percentage Score: ${percentageScore}%`);
+
+    // --- Langkah 6: Simpan Submission ke Database ---
+    console.log(`[Quiz.submit V2] Saving submission to database... User: ${userId}, Quiz: ${numericQuizId}, Score: ${percentageScore}, Points: ${totalPointsEarned}`);
+    const [result] = await db.execute(
+        "INSERT INTO quiz_submissions (user_id, quiz_id, score, points_earned, submitted_at) VALUES (?, ?, ?, ?, NOW())",
+        [userId, numericQuizId, percentageScore, totalPointsEarned]
+    );
+    const submissionId = result.insertId;
+    console.log(`[Quiz.submit V2] Submission saved successfully. ID: ${submissionId}`);
+
+    // --- Langkah 7: Kembalikan Hasil ---
+    const finalResult = {
+        submissionId: submissionId,
+        pointsEarned: totalPointsEarned, // Poin total yang DIHITUNG di backend
+        score: percentageScore
+    };
+    console.log(`[Quiz.submit V2 END] Returning result:`, JSON.stringify(finalResult));
+    return finalResult;
 };
 
 // === FUNGSI DIPERBARUI: getSubmissionsByQuizId ===
