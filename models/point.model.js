@@ -5,29 +5,55 @@ const Point = {};
 
 /**
  * Menambahkan poin untuk user dan mencatatnya ke riwayat.
+ * PERBAIKAN: Melepas transaction eksplisit untuk mencoba mengurangi deadlock,
+ * mengandalkan atomicity per statement.
  */
 Point.addPoints = async (userId, points, activityType, activityDetails) => {
-    const conn = await db.getConnection();
-    try {
-        await conn.beginTransaction();
-        await conn.execute(
-            "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details, created_at) VALUES (?, ?, ?, ?, NOW())",
-            [userId, points, activityType, activityDetails]
-        );
-        await conn.execute(
-            "UPDATE users SET points = points + ? WHERE id = ?",
-            [points, userId]
-        );
-        await conn.commit();
-        const [rows] = await conn.execute("SELECT points FROM users WHERE id = ?", [userId]);
-        return rows.length > 0 ? rows[0].points : 0; // Return 0 jika user tidak ditemukan
-    } catch (error) {
-        await conn.rollback();
-        console.error("Gagal menambahkan poin (rollback):", error);
-        throw error;
-    } finally {
-        conn.release();
+    // Pastikan points adalah angka
+    const pointsToAdd = Number(points);
+    if (isNaN(pointsToAdd)) {
+        console.error(`[ERROR] Invalid points value for userId ${userId}:`, points);
+        throw new Error("Nilai poin tidak valid.");
     }
+     // Jangan tambahkan poin jika nilainya 0 atau kurang
+     if (pointsToAdd <= 0) {
+        console.log(`[INFO] Skipping point addition for userId ${userId} because pointsToAdd is ${pointsToAdd}.`);
+        // Ambil total poin saat ini saja
+         const [rows] = await db.execute("SELECT points FROM users WHERE id = ?", [userId]);
+         return rows.length > 0 ? rows[0].points : 0;
+    }
+
+
+    try {
+        console.log(`[Point.addPoints] Attempting to add ${pointsToAdd} points for user ${userId}, type: ${activityType}`);
+        // 1. Catat riwayat terlebih dahulu
+        await db.execute(
+            "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details, created_at) VALUES (?, ?, ?, ?, NOW())",
+            [userId, pointsToAdd, activityType, activityDetails]
+        );
+        console.log(`[Point.addPoints] History inserted for user ${userId}.`);
+
+
+        // 2. Update total poin pengguna
+        await db.execute(
+            "UPDATE users SET points = points + ? WHERE id = ?",
+            [pointsToAdd, userId]
+        );
+        console.log(`[Point.addPoints] User points updated for user ${userId}.`);
+
+
+        // 3. Ambil total poin baru (opsional, tergantung kebutuhan)
+        const [rows] = await db.execute("SELECT points FROM users WHERE id = ?", [userId]);
+         console.log(`[Point.addPoints] Fetched new total points for user ${userId}: ${rows[0]?.points}`);
+        return rows.length > 0 ? (rows[0].points ?? 0) : 0; // Pastikan return 0 jika poin null
+
+    } catch (error) {
+        // Log error spesifik yang terjadi
+        console.error(`[FATAL] Gagal menambahkan poin untuk userId ${userId}:`, error);
+        // Melempar ulang error agar controller bisa menangani
+        throw error;
+    }
+    // Tidak perlu release koneksi jika menggunakan pool.promise()
 };
 
 /**
@@ -41,26 +67,26 @@ Point.getPointHistory = async (userId) => {
     return rows;
 };
 
-// --- FUNGSI DIPERBAIKI (Collation Fix) UNTUK RIWAYAT MATERI PER MAPEL ---
+// --- FUNGSI RIWAYAT MATERI PER MAPEL ---
 Point.getHistoryForSubject = async (userId, subjectName) => {
-    // Tentukan collation default database/tabel Anda di sini (ganti jika perlu)
-    const dbCollation = 'utf8mb4_unicode_ci'; // Ganti ke utf8mb4_general_ci jika itu default Anda
-
+    // Ganti 'utf8mb4_unicode_ci' jika default collation database Anda berbeda
+    const dbCollation = 'utf8mb4_unicode_ci';
     const query = `
         SELECT
             ss.id,
             c.judul AS title,
             ss.score,
             ss.submission_date AS date,
+            -- Ambil poin yang tercatat di history, fallback ke 820
             COALESCE((SELECT ph.points_earned
                       FROM points_history ph
                       WHERE ph.user_id = ss.user_id
                         AND ph.activity_type = 'MATERI_COMPLETION'
-                        -- TAMBAHKAN COLLATE di sini
                         AND ph.activity_details COLLATE ${dbCollation} LIKE CONCAT('%', COALESCE(c.judul, 'FallbackJudulKosong') COLLATE ${dbCollation}, '%')
-                      ORDER BY ph.created_at DESC
+                      -- Cari yang paling mendekati waktu submit
+                      ORDER BY ABS(TIMESTAMPDIFF(SECOND, ph.created_at, ss.submission_date)) ASC
                       LIMIT 1
-                     ), 820) AS points
+                     ), 0) AS points -- Fallback ke 0 jika tidak ada di history
         FROM student_submissions ss
         JOIN chapters c ON ss.chapter_id = c.id
         JOIN subjects s ON c.subject_id = s.id
@@ -71,33 +97,35 @@ Point.getHistoryForSubject = async (userId, subjectName) => {
     `;
     try {
         const [rows] = await db.execute(query, [userId, subjectName]);
-        return rows;
+        // Pastikan poin tidak null
+        return rows.map(row => ({ ...row, points: row.points ?? 0 }));
     } catch (error) {
         console.error(`Error fetching history for subject "${subjectName}" for user ${userId}:`, error);
         throw error;
     }
 };
 
-
-// --- FUNGSI RIWAYAT KUIS (Collation Fix) ---
+// --- FUNGSI RIWAYAT KUIS ---
 Point.getQuizHistory = async (userId) => {
-    const dbCollation = 'utf8mb4_unicode_ci'; // Ganti jika perlu
-
+    // Ganti 'utf8mb4_unicode_ci' jika default collation database Anda berbeda
+    const dbCollation = 'utf8mb4_unicode_ci';
     const query = `
         SELECT
             qs.id,
             q.title,
-            qs.score,
+            qs.score,           -- Skor persentase
+            qs.points_earned,   -- Total poin didapat
             qs.submitted_at as date,
+            -- Ambil poin yang tercatat di history, fallback ke points_earned
             COALESCE((SELECT ph.points_earned
                      FROM points_history ph
                      WHERE ph.user_id = qs.user_id
                        AND ph.activity_type = 'QUIZ_COMPLETION'
-                       -- TAMBAHKAN COLLATE di sini
                        AND ph.activity_details COLLATE ${dbCollation} LIKE CONCAT('%', COALESCE(q.title, 'FallbackJudulKuis') COLLATE ${dbCollation}, '%')
-                     ORDER BY ph.created_at DESC
+                       -- Cari yang paling mendekati waktu submit kuis jika ada multiple
+                       ORDER BY ABS(TIMESTAMPDIFF(SECOND, ph.created_at, qs.submitted_at)) ASC
                      LIMIT 1
-                    ), 600) AS points
+                    ), qs.points_earned, 0) AS points -- Fallback ke points_earned dari submission, lalu 0
         FROM quiz_submissions qs
         JOIN quizzes q ON qs.quiz_id = q.id
         WHERE qs.user_id = ?
@@ -105,7 +133,13 @@ Point.getQuizHistory = async (userId) => {
     `;
     try {
         const [rows] = await db.execute(query, [userId]);
-        return rows;
+         // Pastikan 'points' dan 'points_earned' ada dan tidak null
+         return rows.map(row => ({
+             ...row,
+             score: row.score ?? 0,
+             points_earned: row.points_earned ?? 0,
+             points: row.points ?? row.points_earned ?? 0 // Ambil dari history, fallback ke submission, fallback ke 0
+         }));
     } catch (error) {
         console.error(`Error fetching quiz history for user ${userId}:`, error);
         throw error;
@@ -114,15 +148,19 @@ Point.getQuizHistory = async (userId) => {
 
 
 /**
- * Mengambil total poin dan informasi peringkat user.
+ * Mengambil total poin dan informasi peringkat user. (Tidak Berubah)
  */
 Point.getSummary = async (userId) => {
-    // ... (Fungsi ini tetap sama seperti sebelumnya) ...
     const [users] = await db.execute("SELECT points FROM users WHERE id = ?", [userId]);
     if (users.length === 0) {
-        throw new Error("User tidak ditemukan.");
+        console.warn(`[WARN] User not found for point summary: userId ${userId}`);
+         return {
+            totalPoints: 0,
+            currentRank: { name: 'Murid Baru', points: 0, color: '#CD7F32', icon: 'bronze' },
+            nextRank: { name: 'Siswa Rajin', points: 5000, color: '#C0C0C0', icon: 'silver' }
+        };
     }
-    const currentUserPoints = users[0].points || 0; // Default 0 jika null
+    const currentUserPoints = users[0].points || 0;
 
     const ranks = [
         { name: 'Murid Baru', points: 0, color: '#CD7F32', icon: 'bronze' },
