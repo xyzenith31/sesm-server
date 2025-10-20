@@ -282,16 +282,45 @@ Quiz.getQuestionsForQuiz = async (quizId) => {
 Quiz.getQuestionsForAdmin = async (quizId) => {
     const id = parseInt(quizId, 10);
     if (isNaN(id)) return [];
-    const [questions] = await db.execute( "SELECT id, question_text, question_type, correct_essay_answer, media_attachments FROM quiz_questions WHERE quiz_id = ?", [id] );
+
+    // 1. Ambil info creator kuis
+    const [quizCreatorRows] = await db.execute(
+        `SELECT u.nama as creator_name, u.avatar as creator_avatar 
+         FROM quizzes q
+         JOIN users u ON q.creator_id = u.id
+         WHERE q.id = ?`,
+        [id]
+    );
+    const creatorInfo = quizCreatorRows[0] || { creator_name: 'Tidak diketahui', creator_avatar: null };
+
+    // 2. Ambil semua soal untuk kuis tersebut
+    const [questions] = await db.execute(
+        "SELECT id, question_text, question_type, correct_essay_answer, media_attachments FROM quiz_questions WHERE quiz_id = ?",
+        [id]
+    );
+
+    // 3. Proses setiap soal untuk menambahkan info creator dan mengambil opsi jawaban
     for (const q of questions) {
-        try { q.media_attachments = q.media_attachments ? JSON.parse(q.media_attachments) : []; } catch (e) { q.media_attachments = []; }
+        // Tambahkan info creator ke setiap soal
+        q.creator_name = creatorInfo.creator_name;
+        q.creator_avatar = creatorInfo.creator_avatar;
+
+        try {
+            q.media_attachments = q.media_attachments ? JSON.parse(q.media_attachments) : [];
+        } catch (e) {
+            q.media_attachments = [];
+        }
         if (q.question_type && q.question_type.includes('pilihan-ganda')) {
-            const [options] = await db.execute( "SELECT id, option_text, is_correct FROM quiz_question_options WHERE question_id = ?", [q.id] );
+            const [options] = await db.execute(
+                "SELECT id, option_text, is_correct FROM quiz_question_options WHERE question_id = ?",
+                [q.id]
+            );
             q.options = options;
         }
     }
     return questions;
 };
+
 
 // ==========================================================
 // === FUNGSI SUBMIT KUIS DENGAN LOGGING TAMBAHAN ===
