@@ -2,7 +2,7 @@
 const Quiz = require("../models/quiz.model.js");
 const Point = require("../models/point.model.js"); // Impor model Point
 
-// === FUNGSI DIPERBARUI: updateQuizSettings (Menambah setting_allow_repeat_points) ===
+// === FUNGSI DIPERBARUI: updateQuizSettings ===
 exports.updateQuizSettings = async (req, res) => {
     const quizId = parseInt(req.params.quizId, 10);
     // Ambil semua setting yang relevan dari body
@@ -14,9 +14,8 @@ exports.updateQuizSettings = async (req, res) => {
         setting_show_leaderboard,
         setting_show_memes,
         setting_allow_redemption,
-        setting_strict_scoring,
-        setting_points_per_correct,
-        setting_allow_repeat_points // <-- Tambahkan setting baru
+        setting_strict_scoring, // <-- BARU
+        setting_points_per_correct // <-- BARU
      } = req.body;
 
      // Buat objek settings yang akan dikirim ke model
@@ -29,8 +28,7 @@ exports.updateQuizSettings = async (req, res) => {
         setting_show_memes,
         setting_allow_redemption,
         setting_strict_scoring,
-        setting_points_per_correct,
-        setting_allow_repeat_points // <-- Tambahkan setting baru
+        setting_points_per_correct
      };
 
     // --- LOGGING UNTUK DEBUGGING ---
@@ -46,7 +44,10 @@ exports.updateQuizSettings = async (req, res) => {
         // Kirim objek settings ke model
         const result = await Quiz.updateSettings(quizId, settings);
         if (result.affectedRows === 0) {
-            console.warn(`[WARN] Quiz settings update affected 0 rows for quizId: ${quizId}.`);
+            // Ini bisa terjadi jika quizId tidak ada ATAU jika tidak ada field valid yang diupdate
+             console.warn(`[WARN] Quiz settings update affected 0 rows for quizId: ${quizId}.`);
+             // Kita anggap sukses jika tidak ada error, mungkin hanya tidak ada yg perlu diupdate
+            // return res.status(404).send({ message: `Kuis dengan ID ${quizId} tidak ditemukan atau tidak ada pengaturan valid yang diubah.` });
         }
         console.log(`[SUCCESS] Settings for quizId: ${quizId} updated (affected rows: ${result.affectedRows}).`);
         res.status(200).send({ message: "Pengaturan kuis berhasil diperbarui." });
@@ -59,178 +60,126 @@ exports.updateQuizSettings = async (req, res) => {
     }
 };
 
+// === FUNGSI EDIT SOAL ===
+exports.updateQuestion = async (req, res) => {
+    const { questionId } = req.params;
+     // Ambil semua field yang mungkin dari body
+    const { question_text, question_type, options, existingMedia, links, essayAnswer } = req.body;
 
-// === FUNGSI DIPERBARUI: submitQuiz (Logika Poin Utama) ===
-exports.submitQuiz = async (req, res) => {
-    const userId = req.userId;
-    const { quizId } = req.params;
-    const { answers } = req.body; // answers: [{ questionId: ..., answer: ... }]
-    const numericQuizId = parseInt(quizId, 10);
-
-    if (!answers || !Array.isArray(answers)) {
-        return res.status(400).send({ message: "Format jawaban tidak valid." });
-    }
-    if (isNaN(numericQuizId)) {
-        return res.status(400).send({ message: "ID Kuis tidak valid." });
+    // Validasi dasar
+    if (!question_text || !question_type) {
+        console.warn(`[WARN] Missing question_text or question_type for updateQuestion ${questionId}`);
+        return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
     }
 
     try {
-        // 1. Cek apakah user sudah pernah submit kuis ini
-        const alreadySubmitted = await Quiz.checkIfSubmitted(userId, numericQuizId);
-        console.log(`[INFO] User ${userId} already submitted quiz ${numericQuizId}? ${alreadySubmitted}`);
-
-        // 2. Ambil info kuis (termasuk setting allowRepeatPoints)
-        const quizInfo = await Quiz.findById(numericQuizId);
-        if (!quizInfo) {
-             return res.status(404).send({ message: "Kuis tidak ditemukan." });
+        // Proses media (gabungkan file baru dan existing/link)
+        const media_attachments = [];
+        // File baru yang diupload (jika ada)
+        if (req.files && req.files.length > 0) {
+            req.files.forEach(file => {
+                 // Pastikan path ada sebelum menambahkannya
+                if (file.path) {
+                    media_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") });
+                } else {
+                     console.warn(`[WARN] Uploaded file missing path for question ${questionId}:`, file.originalname);
+                }
+            });
         }
-        const allowRepeatPoints = quizInfo.allowRepeatPoints; // Ambil setting dari info kuis
-        console.log(`[INFO] Quiz ${numericQuizId} allowRepeatPoints setting: ${allowRepeatPoints}`);
-
-        // 3. Proses submit jawaban (kalkulasi skor & poin oleh model)
-        const result = await Quiz.submit(userId, numericQuizId, answers);
-        const calculatedPoints = result.pointsEarned; // Poin hasil perhitungan
-        const percentageScore = result.score;
-        let pointsAwarded = 0; // Poin yang *benar-benar* diberikan
-
-        // 4. Tentukan apakah poin akan diberikan
-        if (!alreadySubmitted || allowRepeatPoints) {
-            pointsAwarded = calculatedPoints; // Berikan poin hasil kalkulasi
-            if (pointsAwarded > 0) {
-                console.log(`[INFO] Awarding ${pointsAwarded} points to user ${userId} for quiz ${numericQuizId}.`);
-                await Point.addPoints(
-                    userId,
-                    pointsAwarded,
-                    'QUIZ_COMPLETION',
-                    `Menyelesaikan kuis: ${quizInfo.title} ID ${numericQuizId}` // Tambah ID ke detail
-                );
-            } else {
-                 console.log(`[INFO] Calculated points is 0 or less (${calculatedPoints}), skipping Point.addPoints for user ${userId}.`);
+         // Media existing (yang tidak dihapus dari frontend)
+        if (existingMedia) {
+             try {
+                const parsedExistingMedia = JSON.parse(existingMedia);
+                // Filter hanya item yang valid (punya type dan url)
+                const validExistingMedia = parsedExistingMedia.filter(item => item && item.type && item.url);
+                media_attachments.push(...validExistingMedia);
+            } catch (e) {
+                console.error(`[ERROR] Failed to parse existingMedia JSON for question ${questionId}:`, existingMedia, e);
+                 // Jangan hentikan proses, lanjutkan tanpa existing media jika parse gagal
             }
-        } else {
-            console.log(`[INFO] User ${userId} already submitted quiz ${numericQuizId} and repeat points are disallowed. Awarding 0 points.`);
-            pointsAwarded = 0; // Tidak dapat poin jika sudah submit dan repeat tidak diizinkan
+        }
+        // Links (jika ada)
+        if (links) {
+            try {
+                const parsedLinks = JSON.parse(links);
+                // Filter hanya link yang valid
+                const validLinks = parsedLinks.filter(link => link && typeof link === 'string' && link.startsWith('http'));
+                validLinks.forEach(linkUrl => {
+                    media_attachments.push({ type: 'link', url: linkUrl });
+                });
+            } catch (e) {
+                 console.error(`[ERROR] Failed to parse links JSON for question ${questionId}:`, links, e);
+            }
         }
 
-        // 5. Kirim response
-        const responseMessage = alreadySubmitted && !allowRepeatPoints
-            ? `Kuis berhasil dikumpulkan kembali. Anda sudah pernah mendapatkan poin untuk kuis ini.`
-            : `Kuis berhasil dikumpulkan! Anda mendapatkan ${pointsAwarded} poin.`;
 
-        console.log(`[SUCCESS] Quiz submission processed for user ${userId}, quiz ${numericQuizId}. Points Awarded: ${pointsAwarded}, Score: ${percentageScore}%`);
-
-        res.status(200).send({
-            message: responseMessage,
-            submissionId: result.submissionId,
-            pointsEarned: pointsAwarded, // Kirim poin yang BENAR-BENAR diberikan
-            score: percentageScore
-        });
-
-    } catch (error) {
-        console.error(`[FATAL] Error during submitQuiz controller for user ${userId}, quiz ${numericQuizId}:`, error);
-        res.status(500).send({ message: `Gagal memproses jawaban: ${error.message}` });
-    }
-};
-
-// --- Fungsi Lainnya ---
-exports.listAllQuizzes = async (req, res) => {
-    try {
-        const quizzes = await Quiz.getAll();
-        res.status(200).json(quizzes);
-    } catch (error) {
-         console.error("[ERROR] Failed to list all quizzes:", error);
-         res.status(500).send({ message: `Gagal mengambil daftar kuis: ${error.message}` });
-     }
-};
-
-exports.getQuizForStudent = async (req, res) => {
-    try {
-        const quizData = await Quiz.getQuestionsForQuiz(req.params.quizId);
-        if (!quizData || (quizData.questions.length === 0 && Object.keys(quizData.settings || {}).length === 0)) {
-             return res.status(404).send({ message: "Kuis tidak ditemukan atau belum memiliki soal." });
-        }
-        res.status(200).json(quizData);
-    } catch (error) {
-        console.error(`[ERROR] Failed to get quiz for student ${req.params.quizId}:`, error);
-        res.status(500).send({ message: `Gagal mengambil data kuis: ${error.message}` });
-    }
-};
-
-exports.createQuiz = async (req, res) => {
-    try {
-        const { title, description, recommended_level } = req.body;
-        const creatorId = req.userId;
-
-        console.log("[DEBUG] createQuiz - Received data:", { title, description, recommended_level, creatorId });
-        console.log("[DEBUG] createQuiz - File:", req.file);
-
-        if (!title) {
-            console.error("[ERROR] createQuiz - Title is missing");
-            return res.status(400).send({ message: "Judul kuis tidak boleh kosong." });
-        }
-        if (!creatorId) {
-            console.error("[ERROR] createQuiz - Creator ID (req.userId) is missing");
-            return res.status(401).send({ message: "Otentikasi gagal, ID pembuat tidak ditemukan." });
+        // Proses Opsi Jawaban
+        let parsedOptions = []; // Default array kosong
+        if (question_type && question_type.includes('pilihan-ganda')) {
+            if (options) {
+                 try {
+                    parsedOptions = JSON.parse(options);
+                    // Validasi: harus array dan minimal ada 1 jawaban benar
+                    if (!Array.isArray(parsedOptions)) {
+                         console.warn(`[WARN] Invalid options format (not an array) for question ${questionId}`);
+                         return res.status(400).send({ message: "Format opsi jawaban tidak valid (harus array)." });
+                    }
+                     // Pastikan minimal ada satu jawaban benar jika ada opsi
+                    if (parsedOptions.length > 0 && !parsedOptions.some(o => o && o.isCorrect)) {
+                         console.warn(`[WARN] No correct answer provided for multiple choice question ${questionId}`);
+                        return res.status(400).send({ message: "Harus ada setidaknya satu jawaban benar untuk pilihan ganda." });
+                    }
+                } catch (e) {
+                     console.error(`[ERROR] Failed to parse options JSON for question ${questionId}:`, options, e);
+                    return res.status(400).send({ message: "Format data opsi JSON tidak valid." });
+                }
+            } else {
+                 // Jika tipe PG tapi tidak ada opsi dikirim, mungkin frontend error?
+                 console.warn(`[WARN] Multiple choice question type received without options for question ${questionId}`);
+                 // Kita bisa set parsedOptions ke array kosong atau return error, tergantung kebutuhan
+                 // return res.status(400).send({ message: "Opsi jawaban dibutuhkan untuk tipe soal pilihan ganda." });
+            }
         }
 
-        const coverImageUrl = req.file ? req.file.path.replace(/\\/g, "/") : null;
-        console.log("[DEBUG] createQuiz - coverImageUrl:", coverImageUrl);
+        // Siapkan data untuk dikirim ke model
+        const questionData = {
+            question_text,
+            question_type,
+            options: parsedOptions, // Akan kosong jika bukan PG atau jika ada error parse
+            essayAnswer: essayAnswer || null, // Pastikan null jika kosong
+            media_attachments: media_attachments,
+        };
 
-        const newQuiz = await Quiz.create(title, description, creatorId, coverImageUrl, recommended_level);
+        console.log(`[DEBUG] Data being sent to Quiz.updateQuestion for ${questionId}:`, JSON.stringify(questionData, null, 2));
 
-        console.log("[SUCCESS] createQuiz - Quiz created:", newQuiz);
-        res.status(201).send({ message: "Kuis berhasil dibuat!", data: newQuiz });
+
+        // Panggil model untuk update
+        const updatedQuestion = await Quiz.updateQuestion(questionId, questionData);
+        console.log(`[SUCCESS] Question ${questionId} updated successfully.`);
+        res.status(200).send({ message: "Soal berhasil diperbarui.", data: updatedQuestion });
 
     } catch (error) {
-        console.error("[FATAL] ERROR SAAT CREATE QUIZ:", error);
-        res.status(500).send({
-            message: "Terjadi kesalahan internal saat membuat kuis.",
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+        console.error(`[FATAL] Error during updateQuestion controller for ${questionId}:`, error);
+        res.status(500).send({ message: `Terjadi kesalahan saat memperbarui soal: ${error.message}` });
     }
 };
 
-exports.deleteQuiz = async (req, res) => {
-    try {
-        const affectedRows = await Quiz.delete(req.params.quizId);
-        if (affectedRows === 0) return res.status(404).send({ message: "Kuis tidak ditemukan." });
-        res.status(200).send({ message: "Kuis berhasil dihapus." });
-    } catch (error) {
-         console.error(`[ERROR] Failed to delete quiz ${req.params.quizId}:`, error);
-         res.status(500).send({ message: `Gagal menghapus kuis: ${error.message}` });
-    }
-};
 
-exports.getQuizDetailsForAdmin = async (req, res) => {
-    try {
-        const questions = await Quiz.getQuestionsForAdmin(req.params.quizId);
-        res.status(200).json(questions);
-    } catch (error) {
-         console.error(`[ERROR] Failed to get admin details for quiz ${req.params.quizId}:`, error);
-         res.status(500).send({ message: `Gagal mengambil detail kuis: ${error.message}` });
-     }
-};
-
-exports.getSubmissionsForQuiz = async (req, res) => {
-    try {
-        const submissions = await Quiz.getSubmissionsByQuizId(req.params.quizId);
-        res.status(200).json(submissions);
-    } catch (error) {
-        console.error(`[ERROR] Error in getSubmissionsForQuiz controller for quiz ${req.params.quizId}:`, error);
-        res.status(500).send({ message: `Gagal mengambil data submission kuis: ${error.message}` });
-    }
-};
-
+// === FUNGSI TAMBAH SOAL ===
 exports.addQuestionToQuiz = async (req, res) => {
     const { quizId } = req.params;
+    // Ambil semua field yang mungkin
     const { question_text, question_type, options, links, essayAnswer } = req.body;
 
+    // Validasi dasar
     if (!question_text || !question_type) {
         return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
     }
 
     try {
+        // Proses media (file upload dan link)
         const media_attachments = [];
+        // File baru
         if (req.files && req.files.length > 0) {
             req.files.forEach(file => {
                  if (file.path) {
@@ -240,6 +189,7 @@ exports.addQuestionToQuiz = async (req, res) => {
                  }
             });
         }
+        // Links
         if (links) {
             try {
                 const parsedLinks = JSON.parse(links);
@@ -252,6 +202,7 @@ exports.addQuestionToQuiz = async (req, res) => {
             }
         }
 
+        // Proses Opsi Jawaban
         let parsedOptions = [];
         if (question_type && question_type.includes('pilihan-ganda')) {
             if (options) {
@@ -269,6 +220,7 @@ exports.addQuestionToQuiz = async (req, res) => {
             }
         }
 
+        // Siapkan data untuk model
         const questionData = {
             question_text,
             question_type,
@@ -277,6 +229,7 @@ exports.addQuestionToQuiz = async (req, res) => {
             media_attachments: media_attachments,
         };
 
+        // Panggil model
         const newQuestion = await Quiz.addQuestion(quizId, questionData);
         console.log(`[SUCCESS] Question added successfully to quiz ${quizId}. New ID: ${newQuestion.id}`);
         res.status(201).send({ message: "Soal berhasil ditambahkan.", data: newQuestion });
@@ -284,6 +237,102 @@ exports.addQuestionToQuiz = async (req, res) => {
     } catch (error) {
         console.error(`[FATAL] Error during addQuestionToQuiz controller for ${quizId}:`, error);
         res.status(500).send({ message: `Terjadi kesalahan internal saat menambah soal: ${error.message}` });
+    }
+};
+
+
+// === FUNGSI DIPERBARUI: submitQuiz ===
+exports.submitQuiz = async (req, res) => {
+    const userId = req.userId;
+    const { quizId } = req.params;
+    const { answers } = req.body; // answers: [{ questionId: ..., answer: ... }]
+
+    if (!answers || !Array.isArray(answers)) {
+        return res.status(400).send({ message: "Format jawaban tidak valid." });
+    }
+
+    try {
+        // 1. Proses submit kuis menggunakan model yang sudah dimodifikasi
+        // Model sekarang mengembalikan { submissionId, pointsEarned, score }
+        const result = await Quiz.submit(userId, quizId, answers);
+        const pointsEarned = result.pointsEarned; // Ambil total poin yang didapat
+        const percentageScore = result.score; // Ambil skor persentase
+
+        // 2. Tambahkan poin ke riwayat poin pengguna
+        const quizInfo = await Quiz.findById(quizId); // Ambil info kuis untuk detail aktivitas
+
+        // Hanya tambahkan poin jika poin yang didapat > 0
+        if (pointsEarned > 0) {
+             console.log(`[INFO] Calling Point.addPoints for user ${userId}, points: ${pointsEarned}`);
+             // !!! Poin ditambahkan HANYA SEKALI di sini dengan TOTAL POIN !!!
+             await Point.addPoints(
+                userId,
+                pointsEarned, // Gunakan total poin yang didapat
+                'QUIZ_COMPLETION',
+                `Menyelesaikan kuis: ${quizInfo ? quizInfo.title : `ID ${quizId}`}`
+            );
+             console.log(`[INFO] Point.addPoints finished for user ${userId}`);
+        } else {
+             console.log(`[INFO] Skipping Point.addPoints for user ${userId} because pointsEarned is ${pointsEarned}.`);
+        }
+
+
+        // 3. Kirim response ke user, sesuaikan pesan
+        const responseMessage = pointsEarned > 0
+            ? `Kuis berhasil dikumpulkan dan Anda mendapatkan ${pointsEarned} poin!`
+            : `Kuis berhasil dikumpulkan. Anda mendapatkan ${pointsEarned} poin kali ini.`;
+
+        console.log(`[INFO] Quiz submission successful for user ${userId}, quiz ${quizId}. Points: ${pointsEarned}, Score: ${percentageScore}`);
+
+        res.status(200).send({
+            message: responseMessage,
+            submissionId: result.submissionId,
+            pointsEarned: pointsEarned, // Kirim total poin yang didapat
+            score: percentageScore // Kirim juga skor persentase
+        });
+
+    } catch (error) {
+        console.error(`[FATAL] Error during submitQuiz controller for user ${userId}, quiz ${quizId}:`, error);
+        res.status(500).send({ message: `Gagal memproses jawaban: ${error.message}` });
+    }
+};
+
+// --- Fungsi Lain (Tetap Sama) ---
+exports.createQuiz = async (req, res) => {
+    try {
+        const { title, description, recommended_level } = req.body;
+        const creatorId = req.userId; // Pastikan middleware authJwt bekerja dan mengisi ini
+
+        console.log("[DEBUG] createQuiz - Received data:", { title, description, recommended_level, creatorId }); // Tambah log
+        console.log("[DEBUG] createQuiz - File:", req.file); // Log info file
+
+        if (!title) {
+            console.error("[ERROR] createQuiz - Title is missing");
+            return res.status(400).send({ message: "Judul kuis tidak boleh kosong." });
+        }
+        if (!creatorId) {
+            console.error("[ERROR] createQuiz - Creator ID (req.userId) is missing");
+            return res.status(401).send({ message: "Otentikasi gagal, ID pembuat tidak ditemukan." });
+        }
+
+        // Path gambar, pastikan tidak error jika req.file tidak ada
+        const coverImageUrl = req.file ? req.file.path.replace(/\\/g, "/") : null;
+        console.log("[DEBUG] createQuiz - coverImageUrl:", coverImageUrl);
+
+        // Panggil model
+        const newQuiz = await Quiz.create(title, description, creatorId, coverImageUrl, recommended_level);
+
+        console.log("[SUCCESS] createQuiz - Quiz created:", newQuiz);
+        res.status(201).send({ message: "Kuis berhasil dibuat!", data: newQuiz });
+
+    } catch (error) {
+        // Log error lengkap di server
+        console.error("[FATAL] ERROR SAAT CREATE QUIZ:", error);
+        res.status(500).send({
+            message: "Terjadi kesalahan internal saat membuat kuis.",
+            // Kirim detail error HANYA saat development, jangan di produksi
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 
@@ -300,84 +349,14 @@ exports.addQuestionsFromBank = async (req, res) => {
     }
 };
 
-exports.updateQuestion = async (req, res) => {
-    const { questionId } = req.params;
-    const { question_text, question_type, options, existingMedia, links, essayAnswer } = req.body;
-
-    if (!question_text || !question_type) {
-        console.warn(`[WARN] Missing question_text or question_type for updateQuestion ${questionId}`);
-        return res.status(400).send({ message: "Teks pertanyaan dan tipe soal wajib diisi." });
-    }
-
+exports.deleteQuiz = async (req, res) => {
     try {
-        const media_attachments = [];
-        if (req.files && req.files.length > 0) {
-            req.files.forEach(file => {
-                 if (file.path) {
-                    media_attachments.push({ type: 'file', url: file.path.replace(/\\/g, "/") });
-                } else {
-                     console.warn(`[WARN] Uploaded file missing path for question ${questionId}:`, file.originalname);
-                }
-            });
-        }
-        if (existingMedia) {
-             try {
-                const parsedExistingMedia = JSON.parse(existingMedia);
-                const validExistingMedia = parsedExistingMedia.filter(item => item && item.type && item.url);
-                media_attachments.push(...validExistingMedia);
-            } catch (e) {
-                console.error(`[ERROR] Failed to parse existingMedia JSON for question ${questionId}:`, existingMedia, e);
-            }
-        }
-        if (links) {
-            try {
-                const parsedLinks = JSON.parse(links);
-                const validLinks = parsedLinks.filter(link => link && typeof link === 'string' && link.startsWith('http'));
-                validLinks.forEach(linkUrl => {
-                    media_attachments.push({ type: 'link', url: linkUrl });
-                });
-            } catch (e) {
-                 console.error(`[ERROR] Failed to parse links JSON for question ${questionId}:`, links, e);
-            }
-        }
-
-        let parsedOptions = [];
-        if (question_type && question_type.includes('pilihan-ganda')) {
-            if (options) {
-                 try {
-                    parsedOptions = JSON.parse(options);
-                    if (!Array.isArray(parsedOptions)) {
-                         console.warn(`[WARN] Invalid options format (not an array) for question ${questionId}`);
-                         return res.status(400).send({ message: "Format opsi jawaban tidak valid (harus array)." });
-                    }
-                    if (parsedOptions.length > 0 && !parsedOptions.some(o => o && o.isCorrect)) {
-                         console.warn(`[WARN] No correct answer provided for multiple choice question ${questionId}`);
-                        return res.status(400).send({ message: "Harus ada setidaknya satu jawaban benar untuk pilihan ganda." });
-                    }
-                } catch (e) {
-                     console.error(`[ERROR] Failed to parse options JSON for question ${questionId}:`, options, e);
-                    return res.status(400).send({ message: "Format data opsi JSON tidak valid." });
-                }
-            }
-        }
-
-        const questionData = {
-            question_text,
-            question_type,
-            options: parsedOptions,
-            essayAnswer: essayAnswer || null,
-            media_attachments: media_attachments,
-        };
-
-        console.log(`[DEBUG] Data being sent to Quiz.updateQuestion for ${questionId}:`, JSON.stringify(questionData, null, 2));
-
-        const updatedQuestion = await Quiz.updateQuestion(questionId, questionData);
-        console.log(`[SUCCESS] Question ${questionId} updated successfully.`);
-        res.status(200).send({ message: "Soal berhasil diperbarui.", data: updatedQuestion });
-
+        const affectedRows = await Quiz.delete(req.params.quizId);
+        if (affectedRows === 0) return res.status(404).send({ message: "Kuis tidak ditemukan." });
+        res.status(200).send({ message: "Kuis berhasil dihapus." });
     } catch (error) {
-        console.error(`[FATAL] Error during updateQuestion controller for ${questionId}:`, error);
-        res.status(500).send({ message: `Terjadi kesalahan saat memperbarui soal: ${error.message}` });
+         console.error(`[ERROR] Failed to delete quiz ${req.params.quizId}:`, error);
+         res.status(500).send({ message: `Gagal menghapus kuis: ${error.message}` });
     }
 };
 
@@ -389,5 +368,50 @@ exports.deleteQuestion = async (req, res) => {
     } catch (error) {
          console.error(`[ERROR] Failed to delete question ${req.params.questionId}:`, error);
          res.status(500).send({ message: `Gagal menghapus soal: ${error.message}` });
+    }
+};
+
+exports.getQuizDetailsForAdmin = async (req, res) => {
+    try {
+        const questions = await Quiz.getQuestionsForAdmin(req.params.quizId);
+        res.status(200).json(questions);
+    } catch (error) {
+         console.error(`[ERROR] Failed to get admin details for quiz ${req.params.quizId}:`, error);
+         res.status(500).send({ message: `Gagal mengambil detail kuis: ${error.message}` });
+     }
+};
+
+exports.listAllQuizzes = async (req, res) => {
+    try {
+        const quizzes = await Quiz.getAll();
+        res.status(200).json(quizzes);
+    } catch (error) {
+         console.error("[ERROR] Failed to list all quizzes:", error);
+         res.status(500).send({ message: `Gagal mengambil daftar kuis: ${error.message}` });
+     }
+};
+
+exports.getQuizForStudent = async (req, res) => {
+    try {
+        // Model sekarang mengembalikan { questions, settings }
+        const quizData = await Quiz.getQuestionsForQuiz(req.params.quizId);
+        if (!quizData || (quizData.questions.length === 0 && Object.keys(quizData.settings || {}).length === 0)) { // Periksa settings juga
+             // Handle kasus kuis tidak ditemukan
+             return res.status(404).send({ message: "Kuis tidak ditemukan atau belum memiliki soal." });
+        }
+        res.status(200).json(quizData); // Kirim objek lengkap
+    } catch (error) {
+        console.error(`[ERROR] Failed to get quiz for student ${req.params.quizId}:`, error);
+        res.status(500).send({ message: `Gagal mengambil data kuis: ${error.message}` });
+    }
+};
+
+exports.getSubmissionsForQuiz = async (req, res) => {
+    try {
+        const submissions = await Quiz.getSubmissionsByQuizId(req.params.quizId);
+        res.status(200).json(submissions);
+    } catch (error) {
+        console.error(`[ERROR] Error in getSubmissionsForQuiz controller for quiz ${req.params.quizId}:`, error);
+        res.status(500).send({ message: `Gagal mengambil data submission kuis: ${error.message}` });
     }
 };

@@ -5,7 +5,8 @@ const Point = {};
 
 /**
  * Menambahkan poin untuk user dan mencatatnya ke riwayat.
- * PERBAIKAN: Melepas transaction eksplisit & Skip jika poin 0 atau kurang.
+ * PERBAIKAN: Melepas transaction eksplisit untuk mencoba mengurangi deadlock,
+ * mengandalkan atomicity per statement.
  */
 Point.addPoints = async (userId, points, activityType, activityDetails) => {
     // Pastikan points adalah angka
@@ -14,45 +15,24 @@ Point.addPoints = async (userId, points, activityType, activityDetails) => {
         console.error(`[ERROR] Invalid points value for userId ${userId}:`, points);
         throw new Error("Nilai poin tidak valid.");
     }
-    // ⭐ Jangan tambahkan poin jika nilainya 0 atau kurang
-    if (pointsToAdd <= 0) {
+     // Jangan tambahkan poin jika nilainya 0 atau kurang
+     if (pointsToAdd <= 0) {
         console.log(`[INFO] Skipping point addition for userId ${userId} because pointsToAdd is ${pointsToAdd}.`);
         // Ambil total poin saat ini saja
          const [rows] = await db.execute("SELECT points FROM users WHERE id = ?", [userId]);
-         return rows.length > 0 ? (rows[0].points ?? 0) : 0; // Pastikan return 0 jika poin null
+         return rows.length > 0 ? rows[0].points : 0;
     }
+
 
     try {
         console.log(`[Point.addPoints] Attempting to add ${pointsToAdd} points for user ${userId}, type: ${activityType}`);
         // 1. Catat riwayat terlebih dahulu
-        //    Pastikan kolom quiz_id ada di tabel points_history jika Anda perlu mereferensikannya
-        const quizIdMatch = activityDetails.match(/ID (\d+)$/); // Ekstrak ID kuis jika ada
-        const quizIdForHistory = quizIdMatch ? parseInt(quizIdMatch[1], 10) : null;
-        
-        // Cek apakah kolom quiz_id ada. Jika tidak, jangan coba insert.
-        // Ini asumsi sederhana, idealnya Anda tambahkan kolomnya.
-        // Untuk sekarang, kita akan MENCOBA insert. Jika gagal di sini, berarti kolomnya HILANG.
-        // Tapi error Anda ada di GET, bukan POST, jadi kita asumsikan insert ini (quizIdForHistory)
-        // akan gagal secara diam-diam atau kolomnya null, tidak masalah.
-        
-        // PERBAIKAN: Menggunakan kolom quiz_id HANYA jika ada (meskipun query getQuizHistory diubah)
-        // Kita tetap coba simpan, tapi query GET tidak akan menggunakannya.
         await db.execute(
-            "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details, quiz_id, created_at) VALUES (?, ?, ?, ?, ?, NOW())",
-            [userId, pointsToAdd, activityType, activityDetails, quizIdForHistory] // Tambahkan quizIdForHistory
-        ).catch(err => {
-            // Jika error karena kolom quiz_id tidak ada, coba lagi tanpanya.
-            if (err.code === 'ER_BAD_FIELD_ERROR' || err.errno === 1054) {
-                console.warn("[WARN] Kolom 'quiz_id' tidak ditemukan di 'points_history'. Menambahkan history tanpa quiz_id.");
-                return db.execute(
-                    "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details, created_at) VALUES (?, ?, ?, ?, NOW())",
-                    [userId, pointsToAdd, activityType, activityDetails]
-                );
-            }
-            throw err; // Lemparkan error lain
-        });
-
+            "INSERT INTO points_history (user_id, points_earned, activity_type, activity_details, created_at) VALUES (?, ?, ?, ?, NOW())",
+            [userId, pointsToAdd, activityType, activityDetails]
+        );
         console.log(`[Point.addPoints] History inserted for user ${userId}.`);
+
 
         // 2. Update total poin pengguna
         await db.execute(
@@ -61,15 +41,19 @@ Point.addPoints = async (userId, points, activityType, activityDetails) => {
         );
         console.log(`[Point.addPoints] User points updated for user ${userId}.`);
 
-        // 3. Ambil total poin baru
+
+        // 3. Ambil total poin baru (opsional, tergantung kebutuhan)
         const [rows] = await db.execute("SELECT points FROM users WHERE id = ?", [userId]);
          console.log(`[Point.addPoints] Fetched new total points for user ${userId}: ${rows[0]?.points}`);
-        return rows.length > 0 ? (rows[0].points ?? 0) : 0;
+        return rows.length > 0 ? (rows[0].points ?? 0) : 0; // Pastikan return 0 jika poin null
 
     } catch (error) {
+        // Log error spesifik yang terjadi
         console.error(`[FATAL] Gagal menambahkan poin untuk userId ${userId}:`, error);
+        // Melempar ulang error agar controller bisa menangani
         throw error;
     }
+    // Tidak perlu release koneksi jika menggunakan pool.promise()
 };
 
 /**
@@ -121,34 +105,25 @@ Point.getHistoryForSubject = async (userId, subjectName) => {
     }
 };
 
-// --- FUNGSI RIWAYAT KUIS DIPERBARUI (Menambahkan q.id as quiz_id) ---
-// =================================================================
-// === PERBAIKAN DI FUNGSI INI =====================================
-// =================================================================
+// --- FUNGSI RIWAYAT KUIS ---
 Point.getQuizHistory = async (userId) => {
-    const dbCollation = 'utf8mb4_unicode_ci'; // Sesuaikan jika perlu
+    // Ganti 'utf8mb4_unicode_ci' jika default collation database Anda berbeda
+    const dbCollation = 'utf8mb4_unicode_ci';
     const query = `
         SELECT
-            qs.id,           -- Submission ID
-            q.id as quiz_id, -- ⭐ Quiz ID
+            qs.id,
             q.title,
-            qs.score,
-            qs.points_earned,
+            qs.score,           -- Skor persentase
+            qs.points_earned,   -- Total poin didapat
             qs.submitted_at as date,
-            -- Logika COALESCE tetap sama
+            -- Ambil poin yang tercatat di history, fallback ke points_earned
             COALESCE((SELECT ph.points_earned
                      FROM points_history ph
                      WHERE ph.user_id = qs.user_id
                        AND ph.activity_type = 'QUIZ_COMPLETION'
-                       
-                       -- === INI BAGIAN YANG DIUBAH ===
-                       -- Kita tidak lagi menggunakan ph.quiz_id
-                       -- tapi menggunakan pencocokan teks pada activity_details
-                       AND ph.activity_details LIKE CONCAT('% ID ', q.id) 
-                       -- ================================
-
-                       -- Cari history dalam 1 menit submit
-                       AND ABS(TIMESTAMPDIFF(SECOND, ph.created_at, qs.submitted_at)) < 60
+                       AND ph.activity_details COLLATE ${dbCollation} LIKE CONCAT('%', COALESCE(q.title, 'FallbackJudulKuis') COLLATE ${dbCollation}, '%')
+                       -- Cari yang paling mendekati waktu submit kuis jika ada multiple
+                       ORDER BY ABS(TIMESTAMPDIFF(SECOND, ph.created_at, qs.submitted_at)) ASC
                      LIMIT 1
                     ), qs.points_earned, 0) AS points -- Fallback ke points_earned dari submission, lalu 0
         FROM quiz_submissions qs
@@ -158,9 +133,9 @@ Point.getQuizHistory = async (userId) => {
     `;
     try {
         const [rows] = await db.execute(query, [userId]);
+         // Pastikan 'points' dan 'points_earned' ada dan tidak null
          return rows.map(row => ({
              ...row,
-             quiz_id: row.quiz_id, // Pastikan quiz_id ada
              score: row.score ?? 0,
              points_earned: row.points_earned ?? 0,
              points: row.points ?? row.points_earned ?? 0 // Ambil dari history, fallback ke submission, fallback ke 0
