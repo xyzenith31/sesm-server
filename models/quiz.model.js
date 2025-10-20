@@ -231,9 +231,18 @@ Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLe
     }
 };
 
-// === FUNGSI DIPERBARUI: getAll ===
+// === ✅ FUNGSI getAll DIPERBARUI: Menambahkan creator_avatar ===
 Quiz.getAll = async () => {
-    const query = ` SELECT q.*, u.nama as creator_name, (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) as question_count FROM quizzes q JOIN users u ON q.creator_id = u.id ORDER BY q.created_at DESC `;
+    const query = `
+        SELECT
+            q.*,
+            u.nama as creator_name,
+            u.avatar as creator_avatar,
+            (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) as question_count
+        FROM quizzes q
+        JOIN users u ON q.creator_id = u.id
+        ORDER BY q.created_at DESC
+    `;
     const [rows] = await db.execute(query);
     return rows.map(quiz => ({
         ...quiz,
@@ -249,6 +258,7 @@ Quiz.getAll = async () => {
         setting_time_per_question: quiz.setting_time_per_question ?? 20
     }));
 };
+
 
 // === FUNGSI DIPERBARUI: getQuestionsForQuiz ===
 Quiz.getQuestionsForQuiz = async (quizId) => {
