@@ -18,13 +18,13 @@ const deleteFile = (url) => {
     }
 };
 
-// === FUNGSI DIPERBARUI: updateSettings ===
+// === FUNGSI DIPERBARUI: updateSettings (Menambah setting_allow_repeat_points) ===
 Quiz.updateSettings = async (quizId, settings) => {
     const validSettings = [
         'setting_time_per_question', 'setting_randomize_questions', 'setting_randomize_answers',
         'setting_show_leaderboard', 'setting_show_memes', 'setting_allow_redemption',
         'setting_play_music', 'setting_is_timer_enabled', 'setting_strict_scoring',
-        'setting_points_per_correct'
+        'setting_points_per_correct', 'setting_allow_repeat_points' // <-- Tambahkan setting baru
     ];
     const fields = [];
     const values = [];
@@ -33,16 +33,19 @@ Quiz.updateSettings = async (quizId, settings) => {
         if (validSettings.includes(key)) {
             fields.push(`${key} = ?`);
             let value = settings[key];
+            // Konversi boolean ke 0/1 untuk database
             if (typeof value === 'boolean') { value = value ? 1 : 0; }
+            // Validasi dan default untuk poin
             if (key === 'setting_points_per_correct') {
                 value = parseInt(value, 10);
-                if (isNaN(value) || value <= 0) { value = 100; } // Default
+                if (isNaN(value) || value <= 0) { value = 100; }
             }
+            // Validasi dan null handling untuk waktu
             if (key === 'setting_time_per_question') {
-                if (!settings.setting_is_timer_enabled) { value = null; }
+                if (!settings.setting_is_timer_enabled) { value = null; } // Set null jika timer tidak aktif
                 else {
                      value = parseInt(value, 10);
-                     if (isNaN(value) || value < 5 || value > 300) { value = 20; } // Default
+                     if (isNaN(value) || value < 5 || value > 300) { value = 20; }
                 }
             }
             values.push(value);
@@ -61,19 +64,169 @@ Quiz.updateSettings = async (quizId, settings) => {
     return result;
 };
 
-// === FUNGSI DIPERBARUI: findById ===
+
+// === FUNGSI DIPERBARUI: findById (Menambah setting_allow_repeat_points) ===
 Quiz.findById = async (quizId) => {
     // Pastikan kolom baru diambil
     const [rows] = await db.execute(
-        "SELECT title, setting_strict_scoring, setting_points_per_correct FROM quizzes WHERE id = ?",
+        "SELECT title, setting_strict_scoring, setting_points_per_correct, setting_allow_repeat_points FROM quizzes WHERE id = ?",
         [quizId]
     );
     return rows[0] ? {
         title: rows[0].title,
-        strictScoringEnabled: !!rows[0].setting_strict_scoring, // Konversi ke boolean
-        pointsPerCorrectStrict: rows[0].setting_points_per_correct || 100 // Default 100
+        strictScoringEnabled: !!rows[0].setting_strict_scoring,
+        pointsPerCorrectStrict: rows[0].setting_points_per_correct || 100,
+        allowRepeatPoints: !!rows[0].setting_allow_repeat_points // <-- Tambahkan ini
      } : null;
 };
+
+// === FUNGSI BARU: Check if User has Submitted Quiz ===
+Quiz.checkIfSubmitted = async (userId, quizId) => {
+    const [rows] = await db.execute(
+        "SELECT id FROM quiz_submissions WHERE user_id = ? AND quiz_id = ? LIMIT 1",
+        [userId, quizId]
+    );
+    return rows.length > 0;
+};
+
+
+// === FUNGSI DIPERBARUI: getAll (JOIN ke users) ===
+Quiz.getAll = async () => {
+    // --- JOIN users table and select creator name and avatar ---
+    const query = `
+        SELECT
+            q.*,
+            u.nama as creator_name,
+            u.avatar as creator_avatar,
+            (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) as question_count
+        FROM quizzes q
+        JOIN users u ON q.creator_id = u.id
+        ORDER BY q.created_at DESC
+    `;
+    const [rows] = await db.execute(query);
+    // Konversi nilai 0/1 dari DB ke boolean untuk frontend
+    return rows.map(quiz => ({
+        ...quiz,
+        setting_strict_scoring: !!quiz.setting_strict_scoring,
+        setting_is_timer_enabled: !!quiz.setting_is_timer_enabled,
+        setting_randomize_questions: !!quiz.setting_randomize_questions,
+        setting_randomize_answers: !!quiz.setting_randomize_answers,
+        setting_show_leaderboard: quiz.setting_show_leaderboard !== 0,
+        setting_show_memes: quiz.setting_show_memes !== 0,
+        setting_allow_redemption: !!quiz.setting_allow_redemption,
+        setting_play_music: !!quiz.setting_play_music,
+        setting_points_per_correct: quiz.setting_points_per_correct ?? 100,
+        setting_time_per_question: quiz.setting_time_per_question ?? 20,
+        setting_allow_repeat_points: !!quiz.setting_allow_repeat_points // <-- Tambahkan konversi
+    }));
+};
+
+// === FUNGSI SUBMIT (Hanya Kalkulasi & Simpan, Poin dipindah ke Controller) ===
+Quiz.submit = async (userId, quizId, answers) => {
+    const numericQuizId = parseInt(quizId, 10);
+    if (isNaN(numericQuizId)) throw new Error("Quiz ID tidak valid.");
+    console.log(`\n\n[Quiz.submit V2 START] User: ${userId}, Quiz: ${numericQuizId}, Number of Answers: ${answers.length}`);
+
+    // --- Langkah 1: Ambil Pengaturan Kuis ---
+    console.log(`[Quiz.submit V2] Fetching quiz settings...`);
+    const [quizSettingsRows] = await db.execute(
+        "SELECT setting_strict_scoring, setting_points_per_correct FROM quizzes WHERE id = ?",
+        [numericQuizId]
+    );
+    if (quizSettingsRows.length === 0) {
+        console.error(`[Quiz.submit V2 ERROR] Quiz ${numericQuizId} not found in database.`);
+        throw new Error("Kuis tidak ditemukan.");
+    }
+    const { setting_strict_scoring, setting_points_per_correct } = quizSettingsRows[0];
+    const strictScoringEnabled = !!setting_strict_scoring;
+    const pointsPerCorrectStrict = parseInt(setting_points_per_correct, 10) > 0 ? parseInt(setting_points_per_correct, 10) : 100;
+    console.log(`[Quiz.submit V2] Settings Fetched - Strict Mode: ${strictScoringEnabled}, Points/Correct (Strict): ${pointsPerCorrectStrict}`);
+
+    // --- Langkah 2: Tentukan Skema Poin ---
+    const pointsCorrectDefault = 50;
+    const pointsIncorrectDefault = 25;
+    const pointsCorrect = strictScoringEnabled ? pointsPerCorrectStrict : pointsCorrectDefault;
+    const pointsIncorrect = strictScoringEnabled ? 0 : pointsIncorrectDefault;
+    console.log(`[Quiz.submit V2] Point Scheme - Correct: ${pointsCorrect}, Incorrect/Essay: ${pointsIncorrect}`);
+
+    // --- Langkah 3: Ambil Kunci Jawaban Pilihan Ganda ---
+    console.log(`[Quiz.submit V2] Fetching correct answers map...`);
+    const [correctAnswers] = await db.execute(`
+        SELECT qq.id as question_id, qo.option_text as correct_option
+        FROM quiz_questions qq JOIN quiz_question_options qo ON qq.id = qo.question_id
+        WHERE qq.quiz_id = ? AND qo.is_correct = 1 AND qq.question_type LIKE '%pilihan-ganda%'
+    `, [numericQuizId]);
+    const answerMap = new Map(correctAnswers.map(ans => [ans.question_id, ans.correct_option]));
+    console.log(`[Quiz.submit V2] Correct Answer Map created with ${answerMap.size} entries.`);
+
+    // --- Langkah 4: Iterasi dan Hitung Poin ---
+    let totalPointsEarned = 0;
+    let correctMcCount = 0;
+    let totalMcQuestions = 0;
+    console.log(`[Quiz.submit V2] Starting answer processing loop...`);
+
+    for (let i = 0; i < answers.length; i++) {
+        const ans = answers[i];
+        const questionId = parseInt(ans.questionId, 10);
+        const userAnswer = (ans.answer === null || ans.answer === undefined) ? "" : String(ans.answer);
+        const correctAnswerKey = answerMap.get(questionId);
+        const isMcQuestion = correctAnswerKey !== undefined;
+
+        console.log(`\n[Quiz.submit V2 LOOP ${i + 1}/${answers.length}] ---- Processing Question ID: ${questionId} ----`);
+        // ... (Logging lainnya bisa ditambahkan kembali jika perlu) ...
+
+        let pointsForThisQuestion = 0;
+        let isCorrect = false;
+
+        if (isMcQuestion) {
+            totalMcQuestions++;
+            const userTrimmedLower = userAnswer.trim().toLowerCase();
+            const correctTrimmedLower = correctAnswerKey.trim().toLowerCase();
+            isCorrect = userTrimmedLower === correctTrimmedLower;
+
+            if (isCorrect) {
+                pointsForThisQuestion = pointsCorrect;
+                correctMcCount++;
+            } else {
+                pointsForThisQuestion = pointsIncorrect;
+            }
+        } else {
+            // Esai
+            pointsForThisQuestion = pointsIncorrect;
+        }
+
+        totalPointsEarned += pointsForThisQuestion;
+        console.log(`  Points Added This Question: ${pointsForThisQuestion}, Running Total: ${totalPointsEarned}`);
+        console.log(`[Quiz.submit V2 LOOP ${i + 1}/${answers.length}] ---- END Processing Question ID: ${questionId} ----`);
+    }
+
+    console.log(`\n[Quiz.submit V2] Loop finished.`);
+    totalPointsEarned = Math.max(0, totalPointsEarned);
+    console.log(`[Quiz.submit V2] Final Calculated Points: ${totalPointsEarned}`);
+
+    // --- Langkah 5: Hitung Skor Persentase (berdasarkan soal PG saja) ---
+    const percentageScore = totalMcQuestions > 0 ? Math.round((correctMcCount / totalMcQuestions) * 100) : 0;
+    console.log(`[Quiz.submit V2] Calculated Percentage Score: ${percentageScore}%`);
+
+    // --- Langkah 6: Simpan Submission ke Database ---
+    console.log(`[Quiz.submit V2] Saving submission to database...`);
+    const [result] = await db.execute(
+        "INSERT INTO quiz_submissions (user_id, quiz_id, score, points_earned, submitted_at) VALUES (?, ?, ?, ?, NOW())",
+        [userId, numericQuizId, percentageScore, totalPointsEarned]
+    );
+    const submissionId = result.insertId;
+    console.log(`[Quiz.submit V2] Submission saved successfully. ID: ${submissionId}`);
+
+    // --- Langkah 7: Kembalikan Hasil ---
+    const finalResult = {
+        submissionId: submissionId,
+        pointsEarned: totalPointsEarned, // Poin total yang DIHITUNG di backend
+        score: percentageScore
+    };
+    console.log(`[Quiz.submit V2 END] Returning result:`, JSON.stringify(finalResult));
+    return finalResult;
+};
+
 
 // === FUNGSI EDIT SOAL ===
 Quiz.updateQuestion = async (questionId, data) => {
@@ -184,7 +337,7 @@ Quiz.delete = async (quizId) => {
         const [quizRows] = await conn.execute("SELECT cover_image_url FROM quizzes WHERE id = ?", [quizId]);
         const [questionRows] = await conn.execute("SELECT id FROM quiz_questions WHERE quiz_id = ?", [quizId]);
         if (quizRows.length > 0) { deleteFile(quizRows[0].cover_image_url); }
-        for (const q of questionRows) { await Quiz.deleteQuestion(q.id); }
+        for (const q of questionRows) { await Quiz.deleteQuestion(q.id); } // Memanggil fungsi deleteQuestion yang sudah ada
         await conn.execute("DELETE FROM quiz_submissions WHERE quiz_id = ?", [quizId]); // Hapus submissions juga
         const [result] = await conn.execute("DELETE FROM quizzes WHERE id = ?", [quizId]);
         await conn.commit();
@@ -196,19 +349,17 @@ Quiz.delete = async (quizId) => {
 
 // === FUNGSI BUAT KUIS ===
 Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLevel) => {
-    // Query INSERT - pastikan semua nama kolom cocok dengan database
     const query = `
         INSERT INTO quizzes
         (title, description, creator_id, cover_image_url, recommended_level, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, NOW(), NOW())
     `;
-    // Pastikan urutan parameter cocok dengan '?' di query
     const params = [
         title,
-        description || null, // Kirim null jika deskripsi kosong
+        description || null,
         creatorId,
-        coverImageUrl || null, // Kirim null jika tidak ada gambar
-        recommendedLevel || 'Semua' // Default 'Semua' jika tidak disediakan
+        coverImageUrl || null,
+        recommendedLevel || 'Semua'
     ];
 
     console.log("[DEBUG] Quiz.create - Executing query:", query);
@@ -216,7 +367,6 @@ Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLe
 
     try {
         const [result] = await db.execute(query, params);
-
         console.log("[DEBUG] Quiz.create - Insert result:", result);
         if (result.insertId) {
             return { id: result.insertId, title, description, creatorId, coverImageUrl, recommendedLevel };
@@ -224,30 +374,9 @@ Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLe
             throw new Error("Gagal mendapatkan ID kuis yang baru dibuat.");
         }
     } catch (dbError) {
-        // Log error database spesifik
         console.error("[FATAL] Quiz.create - Database error:", dbError);
-        // Melempar ulang error agar controller bisa menangkapnya
         throw dbError;
     }
-};
-
-// === FUNGSI DIPERBARUI: getAll ===
-Quiz.getAll = async () => {
-    const query = ` SELECT q.*, u.nama as creator_name, (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) as question_count FROM quizzes q JOIN users u ON q.creator_id = u.id ORDER BY q.created_at DESC `;
-    const [rows] = await db.execute(query);
-    return rows.map(quiz => ({
-        ...quiz,
-        setting_strict_scoring: !!quiz.setting_strict_scoring,
-        setting_is_timer_enabled: !!quiz.setting_is_timer_enabled,
-        setting_randomize_questions: !!quiz.setting_randomize_questions,
-        setting_randomize_answers: !!quiz.setting_randomize_answers,
-        setting_show_leaderboard: quiz.setting_show_leaderboard !== 0,
-        setting_show_memes: quiz.setting_show_memes !== 0,
-        setting_allow_redemption: !!quiz.setting_allow_redemption,
-        setting_play_music: !!quiz.setting_play_music,
-        setting_points_per_correct: quiz.setting_points_per_correct ?? 100,
-        setting_time_per_question: quiz.setting_time_per_question ?? 20
-    }));
 };
 
 // === FUNGSI DIPERBARUI: getQuestionsForQuiz ===
@@ -265,27 +394,38 @@ Quiz.getQuestionsForQuiz = async (quizId) => {
         setting_show_leaderboard: quizData.setting_show_leaderboard !== 0,
         setting_show_memes: quizData.setting_show_memes !== 0,
         setting_allow_redemption: !!quizData.setting_allow_redemption,
+        // setting_play_music tidak relevan untuk siswa, mungkin?
     };
     const [questions] = await db.execute( "SELECT id, question_text, question_type, media_attachments FROM quiz_questions WHERE quiz_id = ?", [id] );
     for (const q of questions) {
         try { q.media_attachments = q.media_attachments ? JSON.parse(q.media_attachments) : []; } catch(e) { q.media_attachments = []; }
         if (q.question_type && q.question_type.includes('pilihan-ganda')) {
-            const [options] = await db.execute( "SELECT id, option_text, is_correct FROM quiz_question_options WHERE question_id = ? ORDER BY id ASC", [q.id] );
-            q.options = settings.setting_randomize_answers ? options.sort(() => Math.random() - 0.5) : options;
+            // Hanya ambil teks opsi untuk siswa
+            const [options] = await db.execute( "SELECT option_text FROM quiz_question_options WHERE question_id = ? ORDER BY id ASC", [q.id] );
+            q.options = settings.setting_randomize_answers ? options.map(o => o.option_text).sort(() => Math.random() - 0.5) : options.map(o => o.option_text);
         }
     }
     const finalQuestions = settings.setting_randomize_questions ? questions.sort(() => Math.random() - 0.5) : questions;
-    return { questions: finalQuestions, settings };
+    // Mengambil info creator
+    const [creatorInfo] = await db.execute("SELECT u.nama as creator_name, u.avatar as creator_avatar FROM users u JOIN quizzes q ON u.id = q.creator_id WHERE q.id = ?", [id]);
+
+    return {
+        questions: finalQuestions,
+        settings,
+        creatorInfo: creatorInfo[0] || {} // Kirim info creator
+    };
 };
 
 // === FUNGSI DIPERBARUI: getQuestionsForAdmin ===
 Quiz.getQuestionsForAdmin = async (quizId) => {
     const id = parseInt(quizId, 10);
     if (isNaN(id)) return [];
+    // Ambil juga correct_essay_answer
     const [questions] = await db.execute( "SELECT id, question_text, question_type, correct_essay_answer, media_attachments FROM quiz_questions WHERE quiz_id = ?", [id] );
     for (const q of questions) {
         try { q.media_attachments = q.media_attachments ? JSON.parse(q.media_attachments) : []; } catch (e) { q.media_attachments = []; }
         if (q.question_type && q.question_type.includes('pilihan-ganda')) {
+            // Ambil detail opsi termasuk is_correct
             const [options] = await db.execute( "SELECT id, option_text, is_correct FROM quiz_question_options WHERE question_id = ?", [q.id] );
             q.options = options;
         }
@@ -293,136 +433,30 @@ Quiz.getQuestionsForAdmin = async (quizId) => {
     return questions;
 };
 
-// ==========================================================
-// === FUNGSI SUBMIT KUIS DENGAN LOGGING TAMBAHAN ===
-// ==========================================================
-Quiz.submit = async (userId, quizId, answers) => {
-    const numericQuizId = parseInt(quizId, 10);
-    if (isNaN(numericQuizId)) throw new Error("Quiz ID tidak valid.");
-    console.log(`\n\n[Quiz.submit V2 START] User: ${userId}, Quiz: ${numericQuizId}, Number of Answers: ${answers.length}`);
-    // console.log(`[Quiz.submit V2] Raw Answers Payload:`, JSON.stringify(answers, null, 2)); // Uncomment if needed
-
-    // --- Langkah 1: Ambil Pengaturan Kuis ---
-    console.log(`[Quiz.submit V2] Fetching quiz settings...`);
-    const [quizSettingsRows] = await db.execute(
-        "SELECT setting_strict_scoring, setting_points_per_correct FROM quizzes WHERE id = ?",
-        [numericQuizId]
-    );
-    if (quizSettingsRows.length === 0) {
-        console.error(`[Quiz.submit V2 ERROR] Quiz ${numericQuizId} not found in database.`);
-        throw new Error("Kuis tidak ditemukan.");
-    }
-    const { setting_strict_scoring, setting_points_per_correct } = quizSettingsRows[0];
-    const strictScoringEnabled = !!setting_strict_scoring;
-    const pointsPerCorrectStrict = parseInt(setting_points_per_correct, 10) > 0 ? parseInt(setting_points_per_correct, 10) : 100; // Default 100 if invalid
-    console.log(`[Quiz.submit V2] Settings Fetched - Strict Mode: ${strictScoringEnabled}, Points/Correct (Strict): ${pointsPerCorrectStrict}`);
-
-    // --- Langkah 2: Tentukan Skema Poin ---
-    const pointsCorrectDefault = 50;
-    const pointsIncorrectDefault = 25;
-    const pointsCorrect = strictScoringEnabled ? pointsPerCorrectStrict : pointsCorrectDefault;
-    const pointsIncorrect = strictScoringEnabled ? 0 : pointsIncorrectDefault; // Poin untuk salah / esai
-    console.log(`[Quiz.submit V2] Point Scheme - Correct: ${pointsCorrect}, Incorrect/Essay: ${pointsIncorrect}`);
-
-    // --- Langkah 3: Ambil Kunci Jawaban Pilihan Ganda ---
-    console.log(`[Quiz.submit V2] Fetching correct answers map...`);
-    const [correctAnswers] = await db.execute(`
-        SELECT qq.id as question_id, qo.option_text as correct_option
-        FROM quiz_questions qq JOIN quiz_question_options qo ON qq.id = qo.question_id
-        WHERE qq.quiz_id = ? AND qo.is_correct = 1 AND qq.question_type LIKE '%pilihan-ganda%'
-    `, [numericQuizId]);
-    const answerMap = new Map(correctAnswers.map(ans => [ans.question_id, ans.correct_option]));
-    console.log(`[Quiz.submit V2] Correct Answer Map created with ${answerMap.size} entries.`);
-
-    // --- Langkah 4: Iterasi dan Hitung Poin ---
-    let totalPointsEarned = 0; // Inisialisasi HARUS di luar loop
-    let correctMcCount = 0;
-    let totalMcQuestions = 0;
-    console.log(`[Quiz.submit V2] Starting answer processing loop...`);
-
-    for (let i = 0; i < answers.length; i++) {
-        const ans = answers[i];
-        const questionId = parseInt(ans.questionId, 10);
-        // Pastikan userAnswer selalu string, default string kosong jika null/undefined
-        const userAnswer = (ans.answer === null || ans.answer === undefined) ? "" : String(ans.answer);
-        const correctAnswerKey = answerMap.get(questionId); // Ambil kunci jawaban PG jika ada
-        const isMcQuestion = correctAnswerKey !== undefined; // Cek apakah ini soal PG berdasarkan map
-
-        console.log(`\n[Quiz.submit V2 LOOP ${i + 1}/${answers.length}] ---- Processing Question ID: ${questionId} ----`);
-        console.log(`  User Answer Received: "${ans.answer}" (Processed as: "${userAnswer}")`);
-        console.log(`  Is this detected as Multiple Choice? ${isMcQuestion}`);
-        if (isMcQuestion) {
-            console.log(`  Correct Answer Key from Map: "${correctAnswerKey}"`);
-        }
-
-        let pointsForThisQuestion = 0; // Poin HANYA untuk soal ini
-        let isCorrect = false;
-
-        if (isMcQuestion) {
-            totalMcQuestions++;
-            const userTrimmedLower = userAnswer.trim().toLowerCase();
-            const correctTrimmedLower = correctAnswerKey.trim().toLowerCase(); // Kunci jawaban PG seharusnya tidak kosong
-
-            isCorrect = userTrimmedLower === correctTrimmedLower;
-
-            if (isCorrect) {
-                pointsForThisQuestion = pointsCorrect;
-                correctMcCount++;
-                console.log(`  Result (MC): CORRECT!`);
-            } else {
-                pointsForThisQuestion = pointsIncorrect;
-                console.log(`  Result (MC): INCORRECT.`);
-            }
-        } else {
-            // Ini adalah soal Esai murni ATAU soal PG yang kuncinya tidak ditemukan (kemungkinan error data)
-            // Untuk Esai, kita beri poin 'salah' karena perlu dinilai manual
-            pointsForThisQuestion = pointsIncorrect;
-            console.log(`  Result (Essay or MC Error): Applying 'incorrect/essay' points logic.`);
-        }
-
-        // AKUMULASI Poin
-        totalPointsEarned += pointsForThisQuestion;
-        console.log(`  Points Added This Question: ${pointsForThisQuestion}`);
-        console.log(`  Running Total Points: ${totalPointsEarned}`);
-        console.log(`[Quiz.submit V2 LOOP ${i + 1}/${answers.length}] ---- END Processing Question ID: ${questionId} ----`);
-    } // Akhir Loop
-
-    console.log(`\n[Quiz.submit V2] Loop finished.`);
-    // Pastikan total poin tidak negatif (jika ada skema pengurangan poin di masa depan)
-    totalPointsEarned = Math.max(0, totalPointsEarned);
-    console.log(`[Quiz.submit V2] Final Calculated Points: ${totalPointsEarned}`);
-    console.log(`[Quiz.submit V2] MC Stats - Correct: ${correctMcCount}, Total: ${totalMcQuestions}`);
-
-    // --- Langkah 5: Hitung Skor Persentase (berdasarkan soal PG saja) ---
-    const percentageScore = totalMcQuestions > 0 ? Math.round((correctMcCount / totalMcQuestions) * 100) : 0;
-    console.log(`[Quiz.submit V2] Calculated Percentage Score: ${percentageScore}%`);
-
-    // --- Langkah 6: Simpan Submission ke Database ---
-    console.log(`[Quiz.submit V2] Saving submission to database... User: ${userId}, Quiz: ${numericQuizId}, Score: ${percentageScore}, Points: ${totalPointsEarned}`);
-    const [result] = await db.execute(
-        "INSERT INTO quiz_submissions (user_id, quiz_id, score, points_earned, submitted_at) VALUES (?, ?, ?, ?, NOW())",
-        [userId, numericQuizId, percentageScore, totalPointsEarned]
-    );
-    const submissionId = result.insertId;
-    console.log(`[Quiz.submit V2] Submission saved successfully. ID: ${submissionId}`);
-
-    // --- Langkah 7: Kembalikan Hasil ---
-    const finalResult = {
-        submissionId: submissionId,
-        pointsEarned: totalPointsEarned, // Poin total yang DIHITUNG di backend
-        score: percentageScore
-    };
-    console.log(`[Quiz.submit V2 END] Returning result:`, JSON.stringify(finalResult));
-    return finalResult;
-};
 
 // === FUNGSI DIPERBARUI: getSubmissionsByQuizId ===
 Quiz.getSubmissionsByQuizId = async (quizId) => {
     const numericQuizId = parseInt(quizId, 10);
     if (isNaN(numericQuizId)) return [];
-    const query = ` SELECT qs.id, qs.score, qs.points_earned, qs.submitted_at as submission_date, u.nama as student_name FROM quiz_submissions qs JOIN users u ON qs.user_id = u.id WHERE qs.quiz_id = ? ORDER BY qs.points_earned DESC, qs.score DESC, qs.submitted_at ASC `;
+    const query = `
+        SELECT
+            qs.id,
+            qs.score,
+            qs.points_earned,
+            qs.submitted_at as submission_date,
+            u.nama as student_name
+        FROM quiz_submissions qs
+        JOIN users u ON qs.user_id = u.id
+        WHERE qs.quiz_id = ?
+        ORDER BY qs.points_earned DESC, qs.score DESC, qs.submitted_at ASC
+    `;
     const [rows] = await db.execute(query, [numericQuizId]);
-    return rows.map(row => ({ ...row, score: row.score ?? 0, points_earned: row.points_earned ?? 0 })); // Fallback null ke 0
+    // Fallback nilai null ke 0 agar konsisten
+    return rows.map(row => ({
+        ...row,
+        score: row.score ?? 0,
+        points_earned: row.points_earned ?? 0
+    }));
 };
 
 module.exports = Quiz;
