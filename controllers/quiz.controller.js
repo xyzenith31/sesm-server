@@ -264,6 +264,7 @@ exports.submitQuiz = async (req, res) => {
         // Hanya tambahkan poin jika poin yang didapat > 0
         if (pointsEarned > 0) {
              console.log(`[INFO] Calling Point.addPoints for user ${userId}, points: ${pointsEarned}`);
+             // !!! Poin ditambahkan HANYA SEKALI di sini dengan TOTAL POIN !!!
              await Point.addPoints(
                 userId,
                 pointsEarned, // Gunakan total poin yang didapat
@@ -300,14 +301,38 @@ exports.submitQuiz = async (req, res) => {
 exports.createQuiz = async (req, res) => {
     try {
         const { title, description, recommended_level } = req.body;
-        const creatorId = req.userId;
-        if (!title) return res.status(400).send({ message: "Judul kuis tidak boleh kosong." });
+        const creatorId = req.userId; // Pastikan middleware authJwt bekerja dan mengisi ini
+
+        console.log("[DEBUG] createQuiz - Received data:", { title, description, recommended_level, creatorId }); // Tambah log
+        console.log("[DEBUG] createQuiz - File:", req.file); // Log info file
+
+        if (!title) {
+            console.error("[ERROR] createQuiz - Title is missing");
+            return res.status(400).send({ message: "Judul kuis tidak boleh kosong." });
+        }
+        if (!creatorId) {
+            console.error("[ERROR] createQuiz - Creator ID (req.userId) is missing");
+            return res.status(401).send({ message: "Otentikasi gagal, ID pembuat tidak ditemukan." });
+        }
+
+        // Path gambar, pastikan tidak error jika req.file tidak ada
         const coverImageUrl = req.file ? req.file.path.replace(/\\/g, "/") : null;
+        console.log("[DEBUG] createQuiz - coverImageUrl:", coverImageUrl);
+
+        // Panggil model
         const newQuiz = await Quiz.create(title, description, creatorId, coverImageUrl, recommended_level);
+
+        console.log("[SUCCESS] createQuiz - Quiz created:", newQuiz);
         res.status(201).send({ message: "Kuis berhasil dibuat!", data: newQuiz });
+
     } catch (error) {
-        console.error("ERROR SAAT CREATE QUIZ:", error);
-        res.status(500).send({ message: "Terjadi kesalahan internal saat membuat kuis." });
+        // Log error lengkap di server
+        console.error("[FATAL] ERROR SAAT CREATE QUIZ:", error);
+        res.status(500).send({
+            message: "Terjadi kesalahan internal saat membuat kuis.",
+            // Kirim detail error HANYA saat development, jangan di produksi
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 

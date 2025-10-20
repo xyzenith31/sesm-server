@@ -196,8 +196,39 @@ Quiz.delete = async (quizId) => {
 
 // === FUNGSI BUAT KUIS ===
 Quiz.create = async (title, description, creatorId, coverImageUrl, recommendedLevel) => {
-    const [result] = await db.execute( "INSERT INTO quizzes (title, description, creator_id, cover_image_url, recommended_level, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())", [title, description || null, creatorId, coverImageUrl || null, recommended_level || 'Semua'] );
-    return { id: result.insertId, title, description, creatorId, coverImageUrl, recommendedLevel };
+    // Query INSERT - pastikan semua nama kolom cocok dengan database
+    const query = `
+        INSERT INTO quizzes
+        (title, description, creator_id, cover_image_url, recommended_level, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+    `;
+    // Pastikan urutan parameter cocok dengan '?' di query
+    const params = [
+        title,
+        description || null, // Kirim null jika deskripsi kosong
+        creatorId,
+        coverImageUrl || null, // Kirim null jika tidak ada gambar
+        recommendedLevel || 'Semua' // Default 'Semua' jika tidak disediakan
+    ];
+
+    console.log("[DEBUG] Quiz.create - Executing query:", query);
+    console.log("[DEBUG] Quiz.create - With params:", params);
+
+    try {
+        const [result] = await db.execute(query, params);
+
+        console.log("[DEBUG] Quiz.create - Insert result:", result);
+        if (result.insertId) {
+            return { id: result.insertId, title, description, creatorId, coverImageUrl, recommendedLevel };
+        } else {
+            throw new Error("Gagal mendapatkan ID kuis yang baru dibuat.");
+        }
+    } catch (dbError) {
+        // Log error database spesifik
+        console.error("[FATAL] Quiz.create - Database error:", dbError);
+        // Melempar ulang error agar controller bisa menangkapnya
+        throw dbError;
+    }
 };
 
 // === FUNGSI DIPERBARUI: getAll ===
@@ -307,6 +338,7 @@ Quiz.submit = async (userId, quizId, answers) => {
 
     // 4. Hitung Poin Berdasarkan Jawaban Siswa
     console.log(`[Quiz.submit] Calculating points for ${answers.length} answers...`);
+    // !!! Loop ini memproses SEMUA jawaban, termasuk yang pertama !!!
     for (const ans of answers) {
         const questionId = parseInt(ans.questionId, 10);
         const userAnswer = ans.answer;
@@ -326,10 +358,10 @@ Quiz.submit = async (userId, quizId, answers) => {
             if (isCorrect) {
                 correctCount++;
                 console.log(`[Quiz.submit] --> Correct! Adding ${pointsCorrect} points.`);
-                totalPointsEarned += pointsCorrect;
+                totalPointsEarned += pointsCorrect; // Menambah poin jika benar
             } else {
                  console.log(`[Quiz.submit] --> Incorrect (PG). Adding ${pointsIncorrect} points.`);
-                 totalPointsEarned += pointsIncorrect;
+                 totalPointsEarned += pointsIncorrect; // Menambah poin (atau 0 jika strict) jika salah
             }
         } else {
              // Ini adalah soal esai ATAU soal PG yang tidak ada kunci jawabannya di map (seharusnya tidak terjadi jika data benar)
