@@ -13,6 +13,7 @@ const writingRoutes = require('./writing.routes.js');
 const drawingRoutes = require('./drawing.routes.js');
 const interactiveStoryRoutes = require('./interactivestory.routes.js');
 const agendaRoutes = require('./agenda.routes.js'); // Tambahkan ini
+const challengeRoutes = require('./challenge.routes.js'); // Tambahkan ini
 
 module.exports = function(app) {
   authRoutes(app);
@@ -29,4 +30,5 @@ module.exports = function(app) {
   drawingRoutes(app);
   interactiveStoryRoutes(app);
   agendaRoutes(app); // Tambahkan ini
+  challengeRoutes(app); // Tambahkan ini
 };

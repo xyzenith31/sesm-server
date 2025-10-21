@@ -13,6 +13,7 @@ const interactiveStoryController = require('./interactivestory.controller.js');
 const writingController = require('./writing.controller.js'); // Pastikan ini ada
 const drawingController = require('./drawing.controller.js'); // Pastikan ini ada
 const agendaController = require('./agenda.controller.js'); // Pastikan ini ada
+const ChallengeController = require('./challenge.controller.js'); // Pastikan ini ada
 
 module.exports = {
   authController,
@@ -24,6 +25,7 @@ module.exports = {
   pointController,
   diaryController,
   bookmarkController,
+  ChallengeController,
   draftController,
   writingController,
   drawingController,
