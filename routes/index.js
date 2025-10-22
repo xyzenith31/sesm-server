@@ -1,34 +1,36 @@
 // contoh-sesm-server/routes/index.js
+const agendaRoutes = require('./agenda.routes.js');
 const authRoutes = require('./auth.routes.js');
-const subjectRoutes = require('./subject.routes.js');
-const userRoutes = require('./user.routes.js');
+const bookmarkRoutes = require('./bookmark.routes.js');
+const challengeRoutes = require('./challenge.routes.js');
+const diaryRoutes = require('./diary.routes.js');
+const draftRoutes = require('./draft.routes.js');
+const drawingRoutes = require('./drawing.routes.js');
+const storyRoutes = require('./interactivestory.routes.js');
 const materiRoutes = require('./materi.routes.js');
 const nilaiRoutes = require('./nilai.routes.js');
-const quizRoutes = require('./quiz.routes.js');
 const pointRoutes = require('./point.routes.js');
-const diaryRoutes = require('./diary.routes.js');
-const bookmarkRoutes = require('./bookmark.routes.js');
-const draftRoutes = require('./draft.routes.js');
+const quizRoutes = require('./quiz.routes.js');
+const subjectRoutes = require('./subject.routes.js');
+const userRoutes = require('./user.routes.js');
 const writingRoutes = require('./writing.routes.js');
-const drawingRoutes = require('./drawing.routes.js');
-const interactiveStoryRoutes = require('./interactivestory.routes.js');
-const agendaRoutes = require('./agenda.routes.js'); // Tambahkan ini
-const challengeRoutes = require('./challenge.routes.js'); // Tambahkan ini
+const feedbackRoutes = require('./feedback.routes.js'); // <-- PASTIKAN INI ADA
 
 module.exports = function(app) {
+  agendaRoutes(app);
   authRoutes(app);
-  subjectRoutes(app);
-  userRoutes(app);
+  bookmarkRoutes(app);
+  challengeRoutes(app);
+  diaryRoutes(app);
+  draftRoutes(app);
+  drawingRoutes(app);
+  storyRoutes(app);
   materiRoutes(app);
   nilaiRoutes(app);
-  quizRoutes(app);
   pointRoutes(app);
-  diaryRoutes(app);
-  bookmarkRoutes(app);
-  draftRoutes(app);
+  quizRoutes(app);
+  subjectRoutes(app);
+  userRoutes(app);
   writingRoutes(app);
-  drawingRoutes(app);
-  interactiveStoryRoutes(app);
-  agendaRoutes(app); // Tambahkan ini
-  challengeRoutes(app); // Tambahkan ini
+  feedbackRoutes(app); // <-- PASTIKAN INI DIPANGGIL
 };

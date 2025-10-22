@@ -14,6 +14,7 @@ const writingController = require('./writing.controller.js'); // Pastikan ini ad
 const drawingController = require('./drawing.controller.js'); // Pastikan ini ada
 const agendaController = require('./agenda.controller.js'); // Pastikan ini ada
 const ChallengeController = require('./challenge.controller.js'); // Pastikan ini ada
+const feedbackController = require('./feedbackController.js'); // Tambahkan ini
 
 module.exports = {
   authController,
