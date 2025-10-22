@@ -44,4 +44,10 @@ module.exports = function (app) {
         [authJwt.verifyToken, authJwt.isGuru],
         controller.deleteQuestion
     );
+
+    app.put(
+        `${adminPrefix}/:quizId`, // Menangani PUT /api/admin/quizzes/:id
+        [authJwt.verifyToken, authJwt.isGuru, upload.single('coverImage')], // Gunakan middleware yang sama
+        controller.updateQuiz // Arahkan ke controller baru: updateQuiz
+    );
 };

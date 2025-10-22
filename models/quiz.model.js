@@ -464,4 +464,62 @@ Quiz.getSubmissionsByQuizId = async (quizId) => {
     return rows.map(row => ({ ...row, score: row.score ?? 0, points_earned: row.points_earned ?? 0 })); // Fallback null ke 0
 };
 
+Quiz.updateById = async (quizId, data) => {
+    const conn = await db.getConnection(); // Dapatkan koneksi untuk transaksi
+    try {
+        await conn.beginTransaction(); // Mulai transaksi
+
+        // 1. Ambil URL gambar lama sebelum update
+        const [oldQuizData] = await conn.execute("SELECT cover_image_url FROM quizzes WHERE id = ?", [quizId]);
+        const oldCoverImageUrl = oldQuizData.length > 0 ? oldQuizData[0].cover_image_url : null;
+
+        // 2. Buat query UPDATE dinamis
+        const fields = [];
+        const values = [];
+        if (data.title !== undefined) { fields.push("title = ?"); values.push(data.title); }
+        if (data.description !== undefined) { fields.push("description = ?"); values.push(data.description); }
+        if (data.recommended_level !== undefined) { fields.push("recommended_level = ?"); values.push(data.recommended_level); }
+        // Hanya update cover_image_url jika ada path baru yang dikirim
+        if (data.cover_image_url !== undefined) { fields.push("cover_image_url = ?"); values.push(data.cover_image_url); }
+
+        // Tambahkan updated_at
+        fields.push("updated_at = NOW()");
+
+        if (values.length === 0) {
+            // Tidak ada field valid yang perlu diupdate (selain updated_at)
+            await conn.commit(); // Tetap commit untuk updated_at
+            console.log(`[Quiz Model Update ${quizId}] No specific fields to update.`);
+            // Kembalikan 0 karena tidak ada field data utama yang diubah
+             // atau 1 jika hanya ingin menandakan updated_at berubah
+            return 1;
+        }
+
+        const query = `UPDATE quizzes SET ${fields.join(", ")} WHERE id = ?`;
+        values.push(quizId); // Tambahkan quizId di akhir untuk WHERE clause
+
+        console.log(`[Quiz Model Update ${quizId}] Executing query:`, query);
+        console.log(`[Quiz Model Update ${quizId}] With values:`, values);
+
+        // 3. Eksekusi query update
+        const [result] = await conn.execute(query, values);
+        console.log(`[Quiz Model Update ${quizId}] DB Result:`, result);
+
+        // 4. Hapus gambar lama JIKA ada gambar baru DAN gambar lama ada
+        if (data.cover_image_url !== undefined && oldCoverImageUrl) {
+            console.log(`[Quiz Model Update ${quizId}] Deleting old cover image:`, oldCoverImageUrl);
+            deleteFile(oldCoverImageUrl);
+        }
+
+        await conn.commit(); // Akhiri transaksi jika semua berhasil
+        return result.affectedRows; // Kembalikan jumlah baris yang terpengaruh
+
+    } catch (error) {
+        await conn.rollback(); // Batalkan transaksi jika ada error
+        console.error(`[Quiz Model Update ${quizId}] Transaction rolled back due to error:`, error);
+        throw error; // Lempar error ke controller
+    } finally {
+        conn.release(); // Selalu lepaskan koneksi
+    }
+};
+
 module.exports = Quiz;

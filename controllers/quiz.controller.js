@@ -164,6 +164,56 @@ exports.updateQuestion = async (req, res) => {
     }
 };
 
+exports.updateQuiz = async (req, res) => {
+    const { quizId } = req.params;
+    const { title, description, recommended_level } = req.body; // Ambil data dari body
+
+    if (!title) {
+        // Hapus file yang terlanjur diupload jika validasi gagal
+        if (req.file) deleteFile(req.file.path.replace(/\\/g, "/"));
+        return res.status(400).send({ message: "Judul kuis tidak boleh kosong." });
+    }
+
+    try {
+        // Siapkan data untuk diupdate di model
+        const dataToUpdate = {
+            title,
+            description: description || null,
+            recommended_level: recommended_level || 'Semua',
+        };
+
+        // Cek apakah ada file gambar sampul baru diupload
+        if (req.file) {
+            dataToUpdate.cover_image_url = req.file.path.replace(/\\/g, "/"); // Path file baru
+            console.log(`[Update Quiz ${quizId}] New cover image uploaded:`, dataToUpdate.cover_image_url);
+        } else {
+             // Jika tidak ada file baru, kita tidak mengirim cover_image_url
+             // Model akan menangani apakah file lama perlu dihapus atau tidak
+             console.log(`[Update Quiz ${quizId}] No new cover image uploaded.`);
+        }
+
+        console.log(`[Update Quiz ${quizId}] Data to update in model:`, dataToUpdate);
+
+        // Panggil fungsi model untuk update (buat fungsi ini di quiz.model.js)
+        const affectedRows = await Quiz.updateById(quizId, dataToUpdate);
+
+        if (affectedRows === 0) {
+            // Hapus file baru jika update gagal (misal quizId tidak ditemukan)
+            if (req.file) deleteFile(dataToUpdate.cover_image_url);
+            console.warn(`[Update Quiz ${quizId}] Quiz not found or no changes made.`);
+            return res.status(404).send({ message: "Kuis tidak ditemukan atau tidak ada data yang diubah." });
+        }
+
+        console.log(`[Update Quiz ${quizId}] Quiz updated successfully.`);
+        res.status(200).send({ message: "Detail kuis berhasil diperbarui." });
+
+    } catch (error) {
+        // Hapus file baru jika terjadi error server
+        if (req.file) deleteFile(req.file?.path.replace(/\\/g, "/"));
+        console.error(`[FATAL] Error updating quiz ${quizId}:`, error);
+        res.status(500).send({ message: "Gagal memperbarui detail kuis.", error: error.message });
+    }
+};
 
 // === FUNGSI TAMBAH SOAL ===
 exports.addQuestionToQuiz = async (req, res) => {
