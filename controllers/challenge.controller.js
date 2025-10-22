@@ -2,23 +2,26 @@
 const Point = require("../models/point.model.js");
 const db = require("../config/database.config.js"); // Untuk akses DB
 const { dailyChallengesData } = require('../data/dailyChallengeDataStatic'); // Impor data statis
+const seedrandom = require('seedrandom'); // <-- [PERBAIKAN 1] Impor library seedrandom
 
 // --- Helper Functions ---
 
-// Fungsi untuk mengambil tantangan hari ini (Contoh: 3 acak dari data statis)
-// Di aplikasi nyata, ini akan mengambil dari DB dan mempertimbangkan tanggal/user
+// [PERBAIKAN 2] Fungsi ini diupdate untuk menggunakan seeded random
 const determineTodaysChallenges = (userId, count = 3) => {
-    // Implementasi sederhana: Ambil 3 acak dari data statis
-    // Idealnya:
-    // 1. Cek DB `daily_challenges_assigned` untuk user ID dan tanggal hari ini.
-    // 2. Jika ada, kembalikan challenge ID dari sana.
-    // 3. Jika tidak ada:
-    //    a. Pilih 'count' challenge ID (acak atau berdasarkan aturan lain) dari `dailyChallengesData`.
-    //    b. Simpan assignment ini ke `daily_challenges_assigned`.
-    //    c. Kembalikan challenge ID yang dipilih.
-    const shuffled = [...dailyChallengesData].sort(() => 0.5 - Math.random());
+    // Buat seed unik berdasarkan userId dan tanggal hari ini
+    const todayStr = new Date().toISOString().split('T')[0]; // Format YYYY-MM-DD
+    const seed = `${userId}-${todayStr}`;
+    const rng = seedrandom(seed); // Inisialisasi generator angka acak
+
+    // Log untuk debugging (opsional)
+    // console.log(`[DEBUG] Generating challenges for seed: ${seed}`);
+
+    // Acak array menggunakan generator yang sudah di-seed
+    // Ini memastikan urutan acak yang sama untuk seed yang sama
+    const shuffled = [...dailyChallengesData].sort(() => 0.5 - rng());
     return shuffled.slice(0, count).map(c => c.id); // Hanya kembalikan ID
 };
+
 
 // Fungsi untuk mendapatkan detail tantangan berdasarkan ID dari data statis
 const getChallengeDetailsByIds = (ids) => {
@@ -59,7 +62,7 @@ const checkCompletionStatus = async (userId, challengeIds) => {
 exports.getTodaysChallenges = async (req, res) => {
     const userId = req.userId;
     try {
-        // 1. Tentukan ID tantangan untuk hari ini
+        // 1. Tentukan ID tantangan untuk hari ini (sekarang menggunakan seeded random)
         const todaysChallengeIds = determineTodaysChallenges(userId, 3); // Ambil 3 ID
 
         // 2. Ambil detail lengkap tantangan berdasarkan ID
@@ -119,7 +122,7 @@ exports.completeChallenge = async (req, res) => {
         }
 
 
-        // 3. Hitung poin random
+        // 3. Hitung poin random (ini tetap pakai Math.random biasa, tidak masalah)
         const randomPoints = Math.floor(Math.random() * (100 - 40 + 1)) + 40;
 
         // 4. Tambahkan poin menggunakan Point Model
