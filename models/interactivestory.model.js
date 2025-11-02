@@ -3,10 +3,10 @@ const db = require("../config/database.config.js");
 
 const InteractiveStory = {};
 
-// [PERBAIKAN] Menambahkan 's.story_data' ke dalam query SELECT
+// [PERBAIKAN] getAll: Hapus 's.story_data' dari SELECT. Tidak efisien.
 InteractiveStory.getAll = async () => {
     const [rows] = await db.execute(`
-        SELECT s.id, s.title, s.synopsis, s.category, s.read_time, s.total_endings, s.cover_image, s.story_data, u.nama as creator_name
+        SELECT s.id, s.title, s.synopsis, s.category, s.read_time, s.total_endings, s.cover_image, u.nama as creator_name
         FROM interactive_stories s
         LEFT JOIN users u ON s.creator_id = u.id
         ORDER BY s.created_at DESC
@@ -18,6 +18,12 @@ InteractiveStory.getAll = async () => {
 InteractiveStory.findById = async (id) => {
     const [rows] = await db.execute("SELECT story_data FROM interactive_stories WHERE id = ?", [id]);
     return rows.length > 0 ? rows[0].story_data : null;
+};
+
+// [FUNGSI BARU] Untuk mengambil path file sebelum dihapus
+InteractiveStory.getStoryPaths = async (id) => {
+     const [rows] = await db.execute("SELECT cover_image, story_data FROM interactive_stories WHERE id = ?", [id]);
+    return rows.length > 0 ? rows[0] : null;
 };
 
 // Membuat cerita baru

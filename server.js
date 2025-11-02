@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const os = require('os');
+const path = require('path'); // [PERBAIKAN] Impor 'path'
 require('dotenv').config();
 
 const app = express();
@@ -11,7 +12,9 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Naikkan batas untuk JSON
 app.use(express.urlencoded({ limit: '50mb', extended: true })); // Naikkan batas untuk URL-encoded
 
-app.use('/uploads', express.static('uploads'));
+// [PERBAIKAN WAJIB] Sajikan folder 'uploads' secara statis
+// Ini akan membuat http://localhost:8080/uploads/... bisa diakses
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Route utama
 app.get('/', (req, res) => {
